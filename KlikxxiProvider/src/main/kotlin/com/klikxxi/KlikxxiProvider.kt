@@ -44,15 +44,15 @@ private fun Element?.getPosterImageUrl(): String? {
 
 class KlikxxiProvider : MainAPI() {
     companion object {
-        private const val SEL_ARTICLE = "article.has-post-thumbnail, article.item, article.item-infinite"
-        private const val SEL_TITLE = "h1.entry-title, div.mvic-desc h3"
-        private const val SEL_POSTER = "figure.pull-left > img, .mvic-thumb img, .poster img"
+        private const val SEL_ARTICLE = "article.item, div.gmr-item-modulepost"
+        private const val SEL_TITLE = "h1.entry-title, h2.entry-title, div.mvic-desc h3"
+        private const val SEL_POSTER = "figure.pull-left > img, .mvic-thumb img, .poster img, figcaption img[src*='klikxxi']"
         private const val SEL_DESC = "div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p"
-        private const val SEL_RECOMMEND = "article.item.col-md-20"
-        private const val SEL_SEASON_BLOCK = "div.gmr-season-block"
-        private const val SEL_EPISODE_LINK = "div.gmr-season-episodes a"
-        private const val SEL_PLAYER_ID = "div#muvipro_player_content_id"
-        private const val SEL_TAB_CONTENT = "div.tab-content-ajax"
+        private const val SEL_RECOMMEND = "article.item.col-md-20, div.gmr-recent-posts-wrapper article"
+        private const val SEL_SEASON_BLOCK = "div.gmr-season-block, .season-block"
+        private const val SEL_EPISODE_LINK = "div.gmr-season-episodes a, .episode-list a"
+        private const val SEL_PLAYER_ID = "div#muvipro_player_content_id, input#post_id"
+        private const val SEL_TAB_CONTENT = "div.tab-content-ajax, .tab-pane"
         private val QUALITY_CLASS_REGEX = Regex("hd|sd|cam|ts|hdts|hdts2|hdrip|webrip|bluray|brrip|fhd|uhd|4k", RegexOption.IGNORE_CASE)
         private val DIGIT_REGEX = Regex("(\\d+)")
         private val EPISODE_NUM_REGEX = Regex("(?:E(?:p(?:isode)?)?|Episode|Ep\\.?)\\s*(\\d+)", RegexOption.IGNORE_CASE)
@@ -106,28 +106,25 @@ class KlikxxiProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val linkElement = selectFirst("a[href][title]") ?: return null
+        val linkElement = selectFirst("h2.entry-title a, h3.entry-title a") ?: return null
 
-        val href = fixUrl(linkElement.attr("href").ifBlank {
-            selectFirst("a")?.attr("href") ?: return null
-        })
+        val href = fixUrl(linkElement.attr("href"))
 
-        val rawTitle = linkElement.attr("title")
-        val title = rawTitle
-            .removePrefix("Permalink to: ")
-            .ifBlank { linkElement.text() }
-            .trim()
+        val title = linkElement.text().trim()
 
         if (title.isBlank()) return null
 
-        val posterUrl = selectFirst("img.wp-post-image, img.attachment-large, img")
-            ?.getPosterImageUrl()
-            ?.let { fixUrl(it) }
+        val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img[src*='klikxxi.shop'], img.wp-post-image, img.attachment-medium")
+            ?.attr("src")
+            ?.let { it?.let { url -> fixUrl(url) } }
+            ?.ifBlank {
+                attr("data-bg")?.let { fixUrl(it) }
+            }
 
         val quality = extractQuality()
-        val typeText = selectFirst(".gmr-posttype-item")?.text()?.trim()
-        val ratingText = selectFirst("div.gmr-rating-item")?.ownText()?.trim()
-        val isSeries = typeText.equals("TV Show", ignoreCase = true)
+        val typeText = selectFirst(".gmr-posttype-item, .post-type, .movie-type")?.text()?.trim()
+        val ratingText = selectFirst("div.gmr-rating-item, .rating, .imdb-rating")?.ownText()?.trim()
+        val isSeries = typeText.equals("TV Show", ignoreCase = true) || selectFirst(".tv-series, .series-type") != null
 
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -143,11 +140,11 @@ class KlikxxiProvider : MainAPI() {
     }
 
     private fun Element.extractQuality(): String? {
-        val el = selectFirst(".gmr-quality-item") ?: return null
+        val el = selectFirst(".gmr-quality-item, .quality, .quality-tag, [class*='quality']") ?: return null
         return el.text().trim().ifBlank {
-            el.selectFirst("a")?.text()?.trim()
+            el.selectFirst("a, span")?.text()?.trim()
         }?.ifBlank {
-            el.classNames().firstOrNull { cls -> cls.matches(QUALITY_CLASS_REGEX) }?.uppercase()
+            classNames().firstOrNull { cls -> cls.matches(QUALITY_CLASS_REGEX) }?.uppercase()
         }
     }
 
@@ -161,13 +158,15 @@ class KlikxxiProvider : MainAPI() {
     }
 
     private fun Element.toRecommendResult(): SearchResponse? {
-        val title = selectFirst("h2.entry-title > a")?.text()?.trim() ?: return null
-        val href = selectFirst("a")?.attr("href") ?: return null
-        val posterUrl = selectFirst("img.wp-post-image, img.attachment-large, img")
-            ?.getPosterImageUrl()
-            ?.let { fixUrl(it) }
-        val typeText = selectFirst(".gmr-posttype-item")?.text()?.trim()
-        val isSeries = typeText.equals("TV Show", ignoreCase = true)
+        val title = selectFirst("h2.entry-title a, h3.entry-title a")?.text()?.trim() ?: return null
+        val href = fixUrl(selectFirst("a")?.attr("href")) ?: return null
+        val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img.wp-post-image")
+            ?.attr("src")
+            ?.let { it?.let { url -> fixUrl(url) } }
+        
+        val typeText = selectFirst(".gmr-posttype-item, .post-type, .movie-type")?.text()?.trim()
+        val isSeries = typeText.equals("TV Show", ignoreCase = true) || selectFirst(".tv-series, .series-type") != null
+        
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
                 this.posterUrl = posterUrl
@@ -189,29 +188,30 @@ class KlikxxiProvider : MainAPI() {
 
         val poster = document
             .selectFirst(SEL_POSTER)
-            ?.getPosterImageUrl()
-            ?.let { fixUrl(it) }
+            ?.attr("src")
+            ?.let { it?.let { s -> fixUrl(s) } }
 
         val description = document.selectFirst(SEL_DESC)?.text()?.trim()
 
-        val tags = document.select("strong:contains(Genre) ~ a").eachText()
+        val tags = document.select("strong:contains(Genre) ~ a, .post-categories a, .movie-genres a").eachText()
 
         val year = document
-            .select("div.gmr-moviedata strong:contains(Year:) > a")
+            .select("div.gmr-moviedata strong:contains(Year:) > a, .release-date time, [itemprop=datePublished]")
             .text()
-            .toIntOrNull()
+            .takeIf { it.matches(Regex("\\d{4}")) }
+            ?.toIntOrNull()
 
         val trailer = document
-            .selectFirst("ul.gmr-player-nav li a.gmr-trailer-popup")
+            .selectFirst("ul.gmr-player-nav li a.gmr-trailer-popup, .trailer-link a")
             ?.attr("href")
 
         val rating = document
-            .selectFirst("span[itemprop=ratingValue]")
+            .selectFirst("span[itemprop=ratingValue], .imdb-rating span, .rating-value")
             ?.text()
             ?.toDoubleOrNull()
 
         val actors = document
-            .select("div.gmr-moviedata span[itemprop=actors] a")
+            .select("div.gmr-moviedata span[itemprop=actors] a, .cast-list a, .actor-name")
             .map { it.text() }
             .takeIf { it.isNotEmpty() }
 
@@ -253,42 +253,48 @@ class KlikxxiProvider : MainAPI() {
         val allEpisodes = mutableListOf<Episode>()
 
         seasonBlocks.forEach { block ->
-            val seasonTitle = block.selectFirst("h3.season-title")?.text()?.trim()
-            val seasonNumber = DIGIT_REGEX
+            val seasonTitle = block.selectFirst("h3.season-title, .season-name, h2")?.text()?.trim()
+            var seasonNumber = DIGIT_REGEX
                 .find(seasonTitle ?: "")
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.toIntOrNull()
-                ?: 1
+            
+            if (seasonNumber == null) {
+                seasonNumber = block.attr("data-season")?.toIntOrNull()
+                    ?: block.parent()?.attr("data-season")?.toIntOrNull()
+                    ?: 1
+            }
 
             val eps = block.select(SEL_EPISODE_LINK)
-                .filter { a ->
-                    val t = a.text().lowercase()
-                    !t.contains("view all") && !t.contains("batch")
-                }
-                .mapIndexedNotNull { index, epLink ->
-                    val hrefEp = epLink.attr("href")
-                        .takeIf { it.isNotBlank() }
-                        ?.let { fixUrl(it) }
-                        ?: return@mapIndexedNotNull null
+                .takeIf { it.isNotEmpty() }
+                ?: block.select("a[href*='/episode/'], a[href*='#ep-']")
+                
+            eps.filter { a ->
+                val t = a.text().lowercase()
+                !t.contains("view all") && !t.contains("batch") && !t.contains("load more")
+            }.mapIndexedNotNull { index, epLink ->
+                val hrefEp = fixUrl(epLink.attr("href"))
 
-                    val name = epLink.text().trim()
+                if (hrefEp.isBlank()) return@mapIndexedNotNull null
 
-                    val episodeNum = EPISODE_NUM_REGEX.find(name)
-                        ?.groupValues
-                        ?.getOrNull(1)
-                        ?.toIntOrNull()
-                        ?: DIGIT_REGEX.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        ?: (index + 1)
-
-                    newEpisode(hrefEp) {
-                        this.name = name
-                        this.season = seasonNumber
-                        this.episode = episodeNum
-                    }
+                val name = epLink.text().trim().ifBlank {
+                    epLink.parent()?.text()?.trim() ?: "Episode ${index + 1}"
                 }
 
-            allEpisodes.addAll(eps)
+                val episodeNum = EPISODE_NUM_REGEX.find(name)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?: DIGIT_REGEX.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    ?: (index + 1)
+
+                newEpisode(hrefEp) {
+                    this.name = name
+                    this.season = seasonNumber
+                    this.episode = episodeNum
+                }
+            }.forEach { allEpisodes.add(it) }
         }
 
         return allEpisodes
@@ -304,15 +310,22 @@ class KlikxxiProvider : MainAPI() {
     ): Boolean {
         val document = runCatching { app.get(data, timeout = 15_000L).document }.getOrNull()
             ?: throw ErrorLoadingException("Gagal memuat video")
-        val postId = document
-            .selectFirst(SEL_PLAYER_ID)
-            ?.attr("data-id")
-
+        
+        var postId = document
+            .selectFirst(SEL_PLAYER_ID)?.attr("data-id")
+            ?: document.selectFirst("[data-post-id]")?.text()?.trim()
+            ?: document.selectFirst("#post_id, input[name=post_id]")?.attr("value")
+        
         if (postId.isNullOrBlank()) return false
 
         var foundAny = false
         document.select(SEL_TAB_CONTENT).amap { tab ->
-            val tabId = tab.attr("id")
+            var tabId = tab.attr("id")
+            
+            if (tabId.isNullOrBlank()) {
+                tabId = tab.attr("data-tab") ?: tab.attr("name")
+            }
+            
             if (tabId.isNullOrBlank()) return@amap
 
             val response = runCatching {
@@ -323,11 +336,19 @@ class KlikxxiProvider : MainAPI() {
                         "tab" to tabId,
                         "post_id" to postId
                     ),
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest"
+                    ),
                     timeout = 15_000L
                 ).document
             }.getOrNull() ?: return@amap
 
-            val iframe = response.selectFirst("iframe")?.getIframeAttr() ?: return@amap
+            val iframe = response.selectFirst("iframe")?.getIframeAttr() 
+                ?: response.selectFirst("source[src]")?.attr("src")
+                ?: response.text().substringAfter("window.location.href = \"").substringBefore("\"")
+                
+            if (iframe.isNullOrBlank()) return@amap
+            
             val link = httpsify(iframe)
 
             loadExtractor(link, data, subtitleCallback) {
