@@ -159,10 +159,11 @@ class KlikxxiProvider : MainAPI() {
 
     private fun Element.toRecommendResult(): SearchResponse? {
         val title = selectFirst("h2.entry-title a, h3.entry-title a")?.text()?.trim() ?: return null
-        val href = fixUrl(selectFirst("a")?.attr("href")) ?: return null
+        val hrefAttr = selectFirst("a")?.attr("href") ?: return null
+        val href = fixUrl(hrefAttr)
         val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img.wp-post-image")
             ?.attr("src")
-            ?.let { it?.let { url -> fixUrl(url) } }
+            ?.let { url -> fixUrl(url.ifBlank { null }) }
         
         val typeText = selectFirst(".gmr-posttype-item, .post-type, .movie-type")?.text()?.trim()
         val isSeries = typeText.equals("TV Show", ignoreCase = true) || selectFirst(".tv-series, .series-type") != null
