@@ -163,7 +163,8 @@ class KlikxxiProvider : MainAPI() {
         val href = fixUrl(hrefAttr)
         val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img.wp-post-image")
             ?.attr("src")
-            ?.let { url -> fixUrl(url.ifBlank { null }) }
+            ?.takeIf { !it.isNullOrBlank() }
+            ?.let { url -> fixUrl(url) }
         
         val typeText = selectFirst(".gmr-posttype-item, .post-type, .movie-type")?.text()?.trim()
         val isSeries = typeText.equals("TV Show", ignoreCase = true) || selectFirst(".tv-series, .series-type") != null
