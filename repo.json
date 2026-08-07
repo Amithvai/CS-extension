@@ -1,0 +1,9 @@
+{
+    "name": "CS Extension",
+    "iconUrl": "https://github.com/Amithvai.png",
+    "description": "CS Extension collection for CloudStream with Indonesian subtitles",
+    "manifestVersion": 1,
+    "pluginLists": [
+      "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/plugins.json"
+    ]
+}
