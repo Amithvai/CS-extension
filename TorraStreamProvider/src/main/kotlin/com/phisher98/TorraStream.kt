@@ -136,7 +136,7 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
         page: Int, request: MainPageRequest
     ): HomePageResponse {
         val adultQuery =
-            if (settingsForProvider.enableAdult) "" else "&without_keywords=190370|13059|226161|195669|190370"
+            if (settingsForProvider.enableAdult) "" else "&without_keywords=190370|13059|226161|195669"
         val type = if (request.data.contains("/movie")) "movie" else "tv"
         val home = runCatching {
             app.get("${request.data}$adultQuery&page=$page", timeout = 15_000L).text
@@ -161,8 +161,9 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query,1)?.items
 
     override suspend fun search(query: String, page: Int): SearchResponseList? {
+        val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
         return app.get(
-            "$tmdbAPI/search/multi?api_key=$apiKey&language=en-US&query=$query&page=$page&include_adult=${settingsForProvider.enableAdult}",
+            "$tmdbAPI/search/multi?api_key=$apiKey&language=en-US&query=$encodedQuery&page=$page&include_adult=${settingsForProvider.enableAdult}",
             timeout = 15_000L
         ).text.let { tryParseJson<Results>(it) }?.results?.mapNotNull { media ->
             media.toSearchResponse()
@@ -208,7 +209,10 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
 
         val recommendations = res.recommendations?.results?.mapNotNull { media -> media.toSearchResponse() }
 
-        val trailer = res.videos?.results?.map { "https://www.youtube.com/watch?v=${it.key}" }?.randomOrNull()
+        val trailer = res.videos?.results
+            ?.firstOrNull { it.type.equals("Trailer", ignoreCase = true) && !it.key.isNullOrBlank() }
+            ?.key
+            ?.let { "https://www.youtube.com/watch?v=$it" }
 
         val comingSoonFlag = when (res.status?.lowercase()) {
             "released" -> false
@@ -475,8 +479,8 @@ data class AniZipMappings(
 )
 
 suspend fun generateMagnetLink(
-    trackerUrls: List<String>,
     hash: String?,
+    name: String? = null,
 ): String {
     require(hash?.isNotBlank() == true)
 
@@ -484,10 +488,9 @@ suspend fun generateMagnetLink(
 
     return buildString {
         append("magnet:?xt=urn:btih:").append(hash)
-
-        if (hash.isNotBlank()) {
+        if (!name.isNullOrBlank()) {
             append("&dn=")
-            append(URLEncoder.encode(hash, StandardCharsets.UTF_8.name()))
+            append(URLEncoder.encode(name, StandardCharsets.UTF_8.name()))
         }
 
         trackers

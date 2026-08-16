@@ -45,6 +45,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.nicehttp.RequestBodyTypes
 import com.phisher98.TorraStream.Companion.Meteorfortheweebs
 import com.phisher98.TorraStream.Companion.TorboxAPI
+import com.phisher98.TorraStream.Companion.TorrentioAnimeAPI
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Calendar
@@ -310,8 +311,8 @@ open class TorraStreamAnime(private val sharedPref: SharedPreferences) : MainAPI
         } else {
             runAllAsync(
                 { invokeAnimetosho(anidbEid, callback) },
-                { if (kitsuId != -1) invokeTorrentioAnimeType(torrentioDebian, type, kitsuId, episode, callback) },
-                { if (kitsuId != -1)  invokeTorrentsDBAnime(TorrentsDB, kitsuId, kitsuId, episode, callback, filtered) }
+                { if (kitsuId != -1) invokeTorrentioAnimeType(TorrentioAnimeAPI, type, kitsuId, episode, filtered) },
+                { if (kitsuId != -1) invokeTorrentsDBAnime(TorrentsDB, kitsuId, if (type == TvType.Movie) null else 1, episode, callback, filtered) }
             )
         }
 

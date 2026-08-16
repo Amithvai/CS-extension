@@ -2,7 +2,6 @@ package com.phisher98
 
 import com.phisher98.TorraStream.Companion.AnimetoshoAPI
 import com.phisher98.TorraStream.Companion.SubtitlesAPI
-import com.phisher98.TorraStream.Companion.TRACKER_LIST_URL
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
@@ -19,7 +18,6 @@ import java.util.Locale
 private object RegexPatterns {
     val QUALITY_2160_1080_720 = "(2160p|1080p|720p)".toRegex(RegexOption.IGNORE_CASE)
     val QUALITY_FULL = "(2160p|1080p|720p|WEBRip|WEB-DL|x265|x264|10bit|HEVC|H264)".toRegex(RegexOption.IGNORE_CASE)
-    val QUALITY_EXTRA = "(WEBRip|WEB-DL|x265|x264|10bit|HEVC|H264)".toRegex(RegexOption.IGNORE_CASE)
     val SEEDER = "👤\\s*(\\d+)".toRegex()
     val PROVIDER = "⚙️\\s*([^\\n]+)".toRegex()
     val PROVIDER_ESCAPE = "⚙️\\s*([^\\\\]+)".toRegex()
@@ -74,7 +72,7 @@ suspend fun invokeTorrentio(
             ?.value
             ?.lowercase()
 
-        val magnet = generateMagnetLink(TRACKER_LIST_URL, stream.infoHash)
+        val magnet = generateMagnetLink(stream.infoHash, stream.title ?: stream.name)
 
         filtered.invoke(
             newExtractorLink(
@@ -204,7 +202,7 @@ suspend fun invokeTorrentioAnimeType(
     type: TvType,
     id: Int? = null,
     episode: Int? = null,
-    callback: (ExtractorLink) -> Unit
+    filtered: (ExtractorLink) -> Unit
 ) {
     val url = if (type == TvType.Movie) {
         "$mainUrl/stream/movie/kitsu:$id.json"
@@ -234,8 +232,8 @@ suspend fun invokeTorrentioAnimeType(
             ?.value
             ?.lowercase()
 
-        val magnet = generateMagnetLink(TRACKER_LIST_URL, stream.infoHash)
-        callback.invoke(
+        val magnet = generateMagnetLink(stream.infoHash, stream.title ?: stream.name)
+        filtered.invoke(
             newExtractorLink(
                 "Torrentio",
                 formattedTitleName ?: stream.name ?: "",
@@ -267,7 +265,7 @@ suspend fun invokeThepiratebay(
         val res = app.get(url, timeout = 10_000L).text.let { tryParseJson<TBPResponse>(it) }
         for(stream in res?.streams ?: emptyList())
         {
-            val magnetLink = generateMagnetLink(TRACKER_LIST_URL,stream.infoHash).trim()
+            val magnetLink = generateMagnetLink(stream.infoHash, stream.title).trim()
             callback.invoke(
                 newExtractorLink(
                     "ThePirateBay",
@@ -364,7 +362,7 @@ suspend fun invokeTorrentioAnime(
     )
     val res = app.get(url, headers = headers, timeout = 30_000L).text.let { tryParseJson<TorrentioResponse>(it) }
     res?.streams?.forEach { stream ->
-        val magnet = generateMagnetLink(TRACKER_LIST_URL, stream.infoHash)
+        val magnet = generateMagnetLink(stream.infoHash, stream.title ?: stream.name)
         val formattedTitleName = stream.title
             ?.let { title ->
                 val tags = RegexPatterns.TAGS_BRACKET.findAll(title)
@@ -713,7 +711,7 @@ suspend fun invokeTorrentsDB(
         val seeder = RegexPatterns.SEEDER.find(title)?.groupValues?.getOrNull(1) ?: "0"
         val provider = RegexPatterns.PROVIDER.find(title)?.groupValues?.getOrNull(1)?.trim() ?: "Unknown"
         val formattedTitle = "TorrentsDB | $tags | Seeder: $seeder | Provider: $provider"
-        val magnet = generateMagnetLink(stream.sources.orEmpty(), stream.infoHash)
+        val magnet = generateMagnetLink(stream.infoHash, stream.title ?: stream.name)
 
         callback.invoke(
             newExtractorLink(
@@ -763,7 +761,7 @@ suspend fun invokeTorrentsDBAnime(
         val seeder = RegexPatterns.SEEDER.find(title)?.groupValues?.getOrNull(1) ?: "0"
         val provider = RegexPatterns.PROVIDER.find(title)?.groupValues?.getOrNull(1)?.trim() ?: "Unknown"
         val formattedTitle = "TorrentsDB | $tags | Seeder: $seeder | Provider: $provider"
-        val magnet = generateMagnetLink(stream.sources.orEmpty(), stream.infoHash)
+        val magnet = generateMagnetLink(stream.infoHash, stream.title ?: stream.name)
 
         filtered.invoke(
             newExtractorLink(

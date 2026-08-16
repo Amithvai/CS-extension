@@ -1,5 +1,5 @@
 // use an integer for version numbers
-version = 92
+version = 93
 
 android {
     namespace = "com.phisher98"
