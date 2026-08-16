@@ -334,10 +334,10 @@
   },
   {
     "iconUrl": "https://torrentio.strem.fun/images/logo_v1.png",
-    "fileHash": "sha256-4f2cce56fd6979d207e08d9732039722e676e3af74e5bf71c8fa118c18ad0ec6",
+    "fileHash": "sha256-8e7111b8b9d29e4d9324c121d588259ba374139c1f305dccbec5c3df6adce2be",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 207042,
+    "fileSize": 207130,
     "status": 1,
     "language": "en",
     "authors": [
@@ -351,7 +351,7 @@
       "TvSeries",
       "Anime"
     ],
-    "version": 92,
+    "version": 93,
     "internalName": "TorraStreamProvider",
     "description": "#1 Best Extension \u2013 MultiAPI-Based with 4K Torrent Support (Debian) Use Extension Settings",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/TorraStreamProvider.cs3",
