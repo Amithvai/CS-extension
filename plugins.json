@@ -67,10 +67,10 @@
     "name": "DonghubProvider"
   },
   {
-    "fileHash": "sha256-069fde4c80822be8bcbbff0a89b442f9b8f36f1c7bfb05f5b0349564a50a2545",
+    "fileHash": "sha256-25b960d6d6a4dbf1fabcfaf85d35883c45a4c6b94ca2e53f05adecbcddb868c6",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 18098,
+    "fileSize": 92053,
     "status": 1,
     "language": "id",
     "authors": [
@@ -81,9 +81,9 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 1,
+    "version": 2,
     "internalName": "DrachinProvider",
-    "description": "Drachin - Streaming Drama China Sub Indo",
+    "description": "Drachin - Streaming Drama Pendek Sub Indo (SekaiDrama)",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/DrachinProvider.cs3",
     "name": "DrachinProvider"
   },
