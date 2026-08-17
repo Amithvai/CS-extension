@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import java.net.URLEncoder
 
 class Drachin : MainAPI() {
@@ -28,10 +29,68 @@ class Drachin : MainAPI() {
     private companion object {
         private const val API_BASE = "https://api.sansekai.my.id/api"
         private const val API_TIMEOUT = 30_000L
+        private const val CACHE_TTL_MS = 10 * 60 * 1000L
+        private const val MIN_REQUEST_GAP_MS = 2_000L
         private val HEADERS = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
             "Accept" to "application/json"
         )
+        private val responseCache = mutableMapOf<String, Pair<Long, String>>()
+        private val cacheLock = Any()
+        private var lastRequestTime = 0L
+        private val requestLock = Any()
+
+        private fun isErrorResponse(text: String): Boolean {
+            val t = text.trim()
+            if (t.isBlank()) return true
+            if (t.startsWith("[")) return false
+            if (!t.startsWith("{")) return true
+            return t.contains("\"error\"") || t.contains("Too Many Requests") ||
+                t.contains("Forbidden") || t.contains("blacklist")
+        }
+
+        private fun cacheGet(url: String): String? = synchronized(cacheLock) {
+            val cached = responseCache[url] ?: return@synchronized null
+            if (System.currentTimeMillis() - cached.first > CACHE_TTL_MS) {
+                responseCache.remove(url)
+                null
+            } else {
+                cached.second
+            }
+        }
+
+        private fun cachePut(url: String, body: String) = synchronized(cacheLock) {
+            responseCache[url] = System.currentTimeMillis() to body
+        }
+
+        private suspend fun throttledFetch(url: String): String? {
+            val wait = synchronized(requestLock) {
+                val w = MIN_REQUEST_GAP_MS - (System.currentTimeMillis() - lastRequestTime)
+                lastRequestTime = System.currentTimeMillis()
+                w
+            }
+            if (wait > 0) delay(wait)
+            return try {
+                app.get(url, headers = HEADERS, timeout = API_TIMEOUT).text
+            } catch (e: Exception) {
+                logError(e)
+                null
+            }
+        }
+    }
+
+    private suspend fun fetchJson(url: String): String? {
+        cacheGet(url)?.let { return it }
+        var body = throttledFetch(url)
+        if (body == null) return null
+        if (isErrorResponse(body)) {
+            // Rate limited / blacklisted: back off and retry once after the limit window
+            delay(6_000L)
+            body = throttledFetch(url)
+            if (body == null || isErrorResponse(body)) return null
+        }
+        cachePut(url, body)
+        return body
     }
 
     override val mainPage = mainPageOf(
@@ -114,13 +173,6 @@ class Drachin : MainAPI() {
             else -> items = emptyList()
         }
         return items to hasNext
-    }
-
-    private suspend fun fetchJson(url: String): String? = try {
-        app.get(url, headers = HEADERS, timeout = API_TIMEOUT).text
-    } catch (e: Exception) {
-        logError(e)
-        null
     }
 
     // ---------------- DramaBox ----------------
@@ -584,7 +636,6 @@ class Drachin : MainAPI() {
             async { searchPineDrama(encoded) },
             async { searchReelShort(encoded) },
             async { searchMelolo(encoded) },
-            async { searchFreeReels(encoded) },
             async { searchDramaNova(encoded) },
         )
         jobs.mapNotNull { it.await() }.flatten().distinctBy { it.url }
