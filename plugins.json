@@ -67,10 +67,10 @@
     "name": "DonghubProvider"
   },
   {
-    "fileHash": "sha256-25b960d6d6a4dbf1fabcfaf85d35883c45a4c6b94ca2e53f05adecbcddb868c6",
+    "fileHash": "sha256-afe180473d90f3f5edfcf1f677bf5c79e991d5023d794cbe140ae6a4acaf08cc",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 92053,
+    "fileSize": 94313,
     "status": 1,
     "language": "id",
     "authors": [
