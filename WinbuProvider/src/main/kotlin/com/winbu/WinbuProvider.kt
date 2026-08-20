@@ -23,8 +23,12 @@ class WinbuProvider : MainAPI() {
         private val EPISODE_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
         private val RESOLUTION_REGEX = Regex("(\\d{3,4})\\s*p", RegexOption.IGNORE_CASE)
         private val YEAR_REGEX = Regex("\\((\\d{4})\\)")
-        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]+src="([^"]+)"""", RegexOption.IGNORE_CASE)
+        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]+src="([^"]+)""""", RegexOption.IGNORE_CASE)
         private val BROKEN_IFRAME = Regex("""(?:mega\.nz/embed/|vidhidepro\.com/v/?$|about:blank)""", RegexOption.IGNORE_CASE)
+        private val BLOCKED_HOST = Regex("""https?://winbu\.org""")
+
+        fun String.toMain(): String = BLOCKED_HOST.replace(this, mainUrlOf)
+        private val mainUrlOf = "https://winbu.net"
     }
 
     override val mainPage = mainPageOf(
@@ -45,11 +49,11 @@ class WinbuProvider : MainAPI() {
 
     private fun Element.toSearchResult(): SearchResponse? {
         val link = selectFirst("a.ml-mask") ?: return null
-        val href = fixUrl(link.attr("href"))
+        val href = fixUrl(link.attr("href")).toMain()
         val title = link.attr("title").ifBlank { selectFirst(".mli-info .judul")?.text().orEmpty() }.trim()
         if (title.isBlank() || href.isBlank()) return null
 
-        val poster = selectFirst("img.mli-thumb")?.attr("src")?.let { fixUrl(it) }
+        val poster = selectFirst("img.mli-thumb")?.attr("src")?.let { fixUrl(it).toMain() }
         val rating = selectFirst("i.info-hidden")?.attr("data-rating")?.toIntOrNull()
 
         val type = when {
@@ -81,15 +85,16 @@ class WinbuProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, timeout = 15_000L).document
+        val safeUrl = url.toMain()
+        val document = app.get(safeUrl, timeout = 15_000L).document
 
         val title = document.selectFirst(".m-info .mli-info .judul")?.text()?.trim()
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")
                 ?.substringBefore(" - Winbu")?.substringBefore(" Sub Indo")?.trim()
             ?: document.selectFirst("h1")?.text()?.trim()
-            ?: return newMovieLoadResponse(name, url, TvType.Movie, url)
+            ?: return newMovieLoadResponse(name, safeUrl, TvType.Movie, safeUrl)
 
-        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")?.toMain()
         val description = document.selectFirst(".mli-desc p")?.text()?.trim()
         val tags = document.select(".mli-mvi a[rel=tag]").eachText()
         val rating = document.selectFirst("span[itemprop=ratingValue]")?.text()?.trim()?.toDoubleOrNull()
@@ -97,7 +102,7 @@ class WinbuProvider : MainAPI() {
             ?: document.selectFirst("meta[property=article:modified_time]")?.attr("content")?.take(4)?.toIntOrNull()
 
         val episodes = document.select("div.tvseason .les-content a").mapNotNull { elem ->
-            val href = fixUrl(elem.attr("href"))
+            val href = fixUrl(elem.attr("href")).toMain()
             val name = elem.text().trim()
             if (href.isBlank()) return@mapNotNull null
             val episode = EPISODE_REGEX.find(name)?.groupValues?.get(1)?.toIntOrNull()
@@ -113,8 +118,8 @@ class WinbuProvider : MainAPI() {
             .take(30)
 
         return if (episodes.isNotEmpty()) {
-            if (url.contains("/anime/")) {
-                newAnimeLoadResponse(title, url, TvType.Anime) {
+            if (safeUrl.contains("/anime/")) {
+                newAnimeLoadResponse(title, safeUrl, TvType.Anime) {
                     this.posterUrl = poster
                     this.plot = description
                     this.tags = tags
@@ -124,7 +129,7 @@ class WinbuProvider : MainAPI() {
                     addEpisodes(DubStatus.Subbed, episodes)
                 }
             } else {
-                newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                     this.posterUrl = poster
                     this.plot = description
                     this.tags = tags
@@ -134,7 +139,7 @@ class WinbuProvider : MainAPI() {
                 }
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 this.posterUrl = poster
                 this.plot = description
                 this.tags = tags
@@ -151,7 +156,8 @@ class WinbuProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data, timeout = 15_000L).document
+        val safeData = data.toMain()
+        val document = app.get(safeData, timeout = 15_000L).document
         val players = document.select("div.east_player_option").mapNotNull { elem ->
             val post = elem.attr("data-post")
             val nume = elem.attr("data-nume")
@@ -176,17 +182,17 @@ class WinbuProvider : MainAPI() {
                     ),
                     headers = mapOf(
                         "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to data,
+                        "Referer" to safeData,
                         "Accept" to "text/html, */*; q=0.01"
                     ),
                     timeout = 15_000L
                 ).text
 
                 val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: return@amap
-                val url = httpsify(src)
+                val url = httpsify(src).toMain()
                 if (BROKEN_IFRAME.containsMatchIn(url)) return@amap
 
-                loadExtractor(url, data, subtitleCallback) { link ->
+                loadExtractor(url, safeData, subtitleCallback) { link ->
                     player.quality?.let { link.quality = it }
                     foundAny = true
                     callback(link)
