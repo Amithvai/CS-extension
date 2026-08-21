@@ -1,5 +1,6 @@
 package com.winbu
 
+import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.utils.*
@@ -155,8 +156,13 @@ class WinbuProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val safeData = data.toMain()
+        Log.d("Winbu", "loadLinks data=$data safeData=$safeData")
         val document = runCatching { app.get(safeData, timeout = 15_000L).document }.getOrNull()
-            ?: return false
+            ?: run { Log.d("Winbu", "loadLinks: app.get failed $safeData"); return false }
+
+        if (document.title().contains("Just a moment") || document.html().contains("challenges.cloudflare.com")) {
+            Log.d("Winbu", "loadLinks: Cloudflare challenge detected for $safeData")
+        }
 
         val players = document.select("div.east_player_option").mapNotNull { elem ->
             val post = elem.attr("data-post")
@@ -167,20 +173,28 @@ class WinbuProvider : MainAPI() {
             if (post.isBlank() || nume.isBlank()) null else PlayerOption(post, nume, type, quality)
         }.distinctBy { it.post to it.nume }
 
+        Log.d("Winbu", "loadLinks: players found=${players.size} for $safeData")
+
         // Fallback: halaman film tanpa east_player_option tapi punya iframe langsung
         if (players.isEmpty()) {
+            Log.d("Winbu", "loadLinks: no east_player_option, trying direct iframe fallback")
             val directIframes = document.select("div.movieplay iframe, #content-embed iframe, iframe[src]")
                 .mapNotNull { it.attr("src").ifBlank { it.attr("data-src") } }
                 .map { httpsify(it).toMain() }
                 .filterNot { BROKEN_IFRAME.containsMatchIn(it) }
+            Log.d("Winbu", "loadLinks: directIframes=${directIframes.size}")
             if (directIframes.isNotEmpty()) {
                 var anyDirect = false
                 for (u in directIframes) {
+                    Log.d("Winbu", "loadLinks: trying direct iframe $u")
                     if (u.endsWith("/#") || u.endsWith("/v/")) continue
                     var produced = false
                     runCatching { loadExtractor(u, safeData, subtitleCallback) { produced = true; anyDirect = true; callback(it) } }
+                    Log.d("Winbu", "loadLinks: direct loadExtractor produced=$produced for $u")
                     if (!produced && u.contains("filedon.co")) {
-                        if (extractFiledonInline(u, safeData, callback)) anyDirect = true
+                        val ok = extractFiledonInline(u, safeData, callback)
+                        Log.d("Winbu", "loadLinks: direct filedon inline ok=$ok for $u")
+                        if (ok) anyDirect = true
                     }
                 }
                 return anyDirect
@@ -191,6 +205,7 @@ class WinbuProvider : MainAPI() {
         var foundAny = false
         for (player in players) {
             try {
+                Log.d("Winbu", "loadLinks: player_ajax post=${player.post} nume=${player.nume} type=${player.type}")
                 val response = runCatching {
                     app.post(
                         "$mainUrl/wp-admin/admin-ajax.php",
@@ -207,12 +222,14 @@ class WinbuProvider : MainAPI() {
                         ),
                         timeout = 15_000L
                     ).text
-                }.getOrNull() ?: continue
+                }.getOrNull() ?: run { Log.d("Winbu", "player_ajax null response nume=${player.nume}"); continue }
 
-                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: continue
+                Log.d("Winbu", "player_ajax ok nume=${player.nume} len=${response.length} preview=${response.take(150)}")
+                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: run { Log.d("Winbu", "no iframe src in player_ajax nume=${player.nume}"); continue }
                 val url = httpsify(src).toMain().trim()
-                if (url.endsWith("/#") || url.endsWith("/v/")) continue
-                if (BROKEN_IFRAME.containsMatchIn(url)) continue
+                Log.d("Winbu", "player_ajax iframe url=$url")
+                if (url.endsWith("/#") || url.endsWith("/v/")) { Log.d("Winbu", "skip empty id $url"); continue }
+                if (BROKEN_IFRAME.containsMatchIn(url)) { Log.d("Winbu", "skip BROKEN $url"); continue }
 
                 var produced = false
                 runCatching {
@@ -220,22 +237,26 @@ class WinbuProvider : MainAPI() {
                         player.quality?.let { link.quality = it }
                         produced = true
                         foundAny = true
+                        Log.d("Winbu", "loadExtractor produced ${link.url} quality=${link.quality}")
                         callback(link)
                     }
-                }
+                }.onFailure { Log.d("Winbu", "loadExtractor exception for $url : ${it.message}") }
+                Log.d("Winbu", "loadExtractor produced=$produced for $url")
                 // Inline fallback untuk host yang extractor core mungkin gagal
                 if (!produced && url.contains("filedon.co")) {
-                    if (extractFiledonInline(url, safeData, callback)) {
-                        foundAny = true
-                    }
+                    val ok = extractFiledonInline(url, safeData, callback)
+                    Log.d("Winbu", "filedon inline fallback ok=$ok for $url")
+                    if (ok) foundAny = true
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.d("Winbu", "player loop exception nume=${player.nume}: ${e.message}")
                 continue
             }
         }
 
+        Log.d("Winbu", "loadLinks final foundAny=$foundAny")
         return foundAny
     }
 
@@ -246,11 +267,21 @@ class WinbuProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         return try {
+            Log.d("Winbu", "extractFiledonInline start url=$url")
             val doc = app.get(url, referer = referer, timeout = 30_000L).document
-            val json = doc.selectFirst("#app")?.attr("data-page") ?: return false
+            // Coba #app[data-page] dulu (Inertia), fallback ke html mentah
+            var json = doc.selectFirst("#app")?.attr("data-page")
+            if (json.isNullOrBlank()) {
+                Log.d("Winbu", "extractFiledonInline: #app[data-page] empty, fallback to doc.html()")
+                json = doc.html()
+            } else {
+                Log.d("Winbu", "extractFiledonInline: #app json len=${json.length}")
+            }
+            if (json.isNullOrBlank()) return false
             val hlsMatch = Regex("""\"hls_url\":\"(https:\\/\\/[^"]+\.m3u8[^"]*)""").find(json)
             if (hlsMatch != null) {
                 val hlsUrl = hlsMatch.groupValues[1].replace("\\/", "/")
+                Log.d("Winbu", "extractFiledonInline: hlsUrl=$hlsUrl")
                 com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8(
                     "Filedon",
                     fixUrl(hlsUrl),
@@ -259,10 +290,13 @@ class WinbuProvider : MainAPI() {
                 ).forEach(callback)
                 return true
             }
-            val rawUrl = Regex("""\"url\":\"(https:\\/\\/[^"]+\.mp4[^"]*)""").find(json)
-                ?.groupValues?.get(1)?.replace("\\/", "/") ?: return false
+            val m = Regex("""\"url\":\"(https:\\/\\/[^"]+\.mp4[^"]*)""").find(json)
+            Log.d("Winbu", "extractFiledonInline: mp4 match found=${m != null}")
+            val rawUrl = m?.groupValues?.get(1)?.replace("\\/", "/") ?: return false
+            Log.d("Winbu", "extractFiledonInline: rawUrl len=${rawUrl.length}")
             val fileName = Regex("""\"name\":\"([^"]+\.mp4)""").find(json)
                 ?.groupValues?.get(1)?.replace("\\/", "/")
+            Log.d("Winbu", "extractFiledonInline: fileName=$fileName")
             val quality = fileName?.let { getQualityFromName(it) }
                 ?: com.lagradost.cloudstream3.utils.Qualities.Unknown.value
             callback(
@@ -272,7 +306,8 @@ class WinbuProvider : MainAPI() {
                 }
             )
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.d("Winbu", "extractFiledonInline exception: ${e.message}")
             false
         }
     }
