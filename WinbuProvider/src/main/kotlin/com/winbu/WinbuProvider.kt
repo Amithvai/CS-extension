@@ -2,9 +2,7 @@ package com.winbu
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.httpsify
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.*
 import kotlinx.coroutines.CancellationException
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
@@ -157,54 +155,126 @@ class WinbuProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val safeData = data.toMain()
-        val document = app.get(safeData, timeout = 15_000L).document
+        val document = runCatching { app.get(safeData, timeout = 15_000L).document }.getOrNull()
+            ?: return false
+
         val players = document.select("div.east_player_option").mapNotNull { elem ->
             val post = elem.attr("data-post")
             val nume = elem.attr("data-nume")
-            val type = elem.attr("data-type")
+            val type = elem.attr("data-type").ifBlank { "schtml" }
             val quality = elem.closest("div.dropdown")?.selectFirst("button.dropdown-toggle")?.text()
                 ?.let { RESOLUTION_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() }
             if (post.isBlank() || nume.isBlank()) null else PlayerOption(post, nume, type, quality)
         }.distinctBy { it.post to it.nume }
 
-        if (players.isEmpty()) return false
+        // Fallback: halaman film tanpa east_player_option tapi punya iframe langsung
+        if (players.isEmpty()) {
+            val directIframes = document.select("div.movieplay iframe, #content-embed iframe, iframe[src]")
+                .mapNotNull { it.attr("src").ifBlank { it.attr("data-src") } }
+                .map { httpsify(it).toMain() }
+                .filterNot { BROKEN_IFRAME.containsMatchIn(it) }
+            if (directIframes.isNotEmpty()) {
+                var anyDirect = false
+                for (u in directIframes) {
+                    if (u.endsWith("/#") || u.endsWith("/v/")) continue
+                    var produced = false
+                    runCatching { loadExtractor(u, safeData, subtitleCallback) { produced = true; anyDirect = true; callback(it) } }
+                    if (!produced && u.contains("filedon.co")) {
+                        if (extractFiledonInline(u, safeData, callback)) anyDirect = true
+                    }
+                }
+                return anyDirect
+            }
+            return false
+        }
 
         var foundAny = false
-        players.amap { player ->
+        for (player in players) {
             try {
-                val response = app.post(
-                    "$mainUrl/wp-admin/admin-ajax.php",
-                    data = mapOf(
-                        "action" to "player_ajax",
-                        "post" to player.post,
-                        "nume" to player.nume,
-                        "type" to player.type
-                    ),
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to safeData,
-                        "Accept" to "text/html, */*; q=0.01"
-                    ),
-                    timeout = 15_000L
-                ).text
+                val response = runCatching {
+                    app.post(
+                        "$mainUrl/wp-admin/admin-ajax.php",
+                        data = mapOf(
+                            "action" to "player_ajax",
+                            "post" to player.post,
+                            "nume" to player.nume,
+                            "type" to player.type
+                        ),
+                        headers = mapOf(
+                            "X-Requested-With" to "XMLHttpRequest",
+                            "Referer" to safeData,
+                            "Accept" to "text/html, */*; q=0.01"
+                        ),
+                        timeout = 15_000L
+                    ).text
+                }.getOrNull() ?: continue
 
-                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: return@amap
-                val url = httpsify(src).toMain()
-                if (BROKEN_IFRAME.containsMatchIn(url)) return@amap
+                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: continue
+                val url = httpsify(src).toMain().trim()
+                if (url.endsWith("/#") || url.endsWith("/v/")) continue
+                if (BROKEN_IFRAME.containsMatchIn(url)) continue
 
-                loadExtractor(url, safeData, subtitleCallback) { link ->
-                    player.quality?.let { link.quality = it }
-                    foundAny = true
-                    callback(link)
+                var produced = false
+                runCatching {
+                    loadExtractor(url, safeData, subtitleCallback) { link ->
+                        player.quality?.let { link.quality = it }
+                        produced = true
+                        foundAny = true
+                        callback(link)
+                    }
+                }
+                // Inline fallback untuk host yang extractor core mungkin gagal
+                if (!produced && url.contains("filedon.co")) {
+                    if (extractFiledonInline(url, safeData, callback)) {
+                        foundAny = true
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // abaikan server yang gagal, lanjut ke server berikutnya
+                continue
             }
         }
 
         return foundAny
+    }
+
+    // Inline extractor Filedon — fallback jika loadExtractor tidak menemukan handler
+    private suspend fun extractFiledonInline(
+        url: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        return try {
+            val doc = app.get(url, referer = referer, timeout = 30_000L).document
+            val json = doc.selectFirst("#app")?.attr("data-page") ?: return false
+            val hlsMatch = Regex("""\"hls_url\":\"(https:\\/\\/[^"]+\.m3u8[^"]*)""").find(json)
+            if (hlsMatch != null) {
+                val hlsUrl = hlsMatch.groupValues[1].replace("\\/", "/")
+                com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8(
+                    "Filedon",
+                    fixUrl(hlsUrl),
+                    referer = "https://filedon.co/",
+                    headers = mapOf("User-Agent" to USER_AGENT)
+                ).forEach(callback)
+                return true
+            }
+            val rawUrl = Regex("""\"url\":\"(https:\\/\\/[^"]+\.mp4[^"]*)""").find(json)
+                ?.groupValues?.get(1)?.replace("\\/", "/") ?: return false
+            val fileName = Regex("""\"name\":\"([^"]+\.mp4)""").find(json)
+                ?.groupValues?.get(1)?.replace("\\/", "/")
+            val quality = fileName?.let { getQualityFromName(it) }
+                ?: com.lagradost.cloudstream3.utils.Qualities.Unknown.value
+            callback(
+                newExtractorLink("Filedon", "Filedon", rawUrl) {
+                    this.referer = "https://filedon.co/"
+                    this.quality = quality
+                }
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private data class PlayerOption(
