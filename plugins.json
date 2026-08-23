@@ -111,6 +111,28 @@
     "name": "Dutamovie"
   },
   {
+    "fileHash": "sha256-805f409b3ea396d2276edc7171fc315d79cb150c6ecc0c6733146520b625f293",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/Amithvai/CS-extension",
+    "fileSize": 36237,
+    "status": 1,
+    "language": "id",
+    "authors": [
+      "MWK"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Anime",
+      "AsianDrama"
+    ],
+    "version": 1,
+    "internalName": "IDLIXProvider",
+    "description": "IDLIX - Streaming Film, Series & Drama Sub Indo (Multi-domain: IDLIX/LK21/Rebahin)",
+    "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/IDLIXProvider.cs3",
+    "name": "IDLIXProvider"
+  },
+  {
     "iconUrl": "https://www.google.com/s2/favicons?domain=kisskh.co&sz=%size%",
     "fileHash": "sha256-88acbe5f0141a7806831c9bfacad9237d1d19b00ee32cc610b8e794d85c2605a",
     "apiVersion": 1,
