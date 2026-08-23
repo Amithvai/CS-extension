@@ -23,13 +23,14 @@ import java.net.URLEncoder
 class IDLIXProvider : MainAPI() {
 
     companion object {
-        /** Daftar domain mirror - urutan prioritas, yang paling stabil di atas */
+        /** Daftar domain mirror - urutan prioritas, yang paling stabil di atas (lk21official terbukti 200 tanpa CF) */
         val domains = listOf(
+            "https://lk21official.wiki",
+            "https://tv12.lk21official.cc",
             "https://tv4.idlixian.com",
             "https://tv3.idlixian.com",
             "https://idlixian.com",
             "https://idflix.my.id",
-            "https://lk21official.wiki",
             "https://rebahinxxi.shop"
         )
 
@@ -52,8 +53,10 @@ class IDLIXProvider : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "page/%d/" to "Terbaru",
-        "trending/page/%d/" to "Trending",
+        "latest/page/%d/" to "Terbaru",
+        "populer/page/%d/" to "Populer",
+        "rating/page/%d/" to "Top Rating",
+        "release/page/%d/" to "Rilis Terbaru",
         "genre/action/page/%d/" to "Action",
         "genre/adventure/page/%d/" to "Adventure",
         "genre/animation/page/%d/" to "Animation",
@@ -65,7 +68,7 @@ class IDLIXProvider : MainAPI() {
         "genre/romance/page/%d/" to "Romance",
         "genre/sci-fi/page/%d/" to "Sci-Fi",
         "genre/thriller/page/%d/" to "Thriller",
-        "country/korea/page/%d/" to "Korea",
+        "country/south-korea/page/%d/" to "Korea",
         "country/indonesia/page/%d/" to "Indonesia",
         "country/japan/page/%d/" to "Jepang",
         "country/china/page/%d/" to "China"
@@ -92,35 +95,63 @@ class IDLIXProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val path = request.data.format(page)
-        val url = "$mainUrl/$path"
+        // page 1 for lk21: "/" juga valid, tapi "/latest/page/1/" juga valid; keep as-is
+        val url = if (path.isBlank()) mainUrl else "$mainUrl/$path"
         val document = getDocument(url) ?: return newHomePageResponse(request.name, emptyList(), hasNext = false)
-        val items = document.select("article.item, article.item-infinite, div.gmr-item-modulepost, div.ml-item")
-            .mapNotNull { it.toSearchItem() }
+        // Support both muvipro (article.item) dan lk21official (gallery-grid article, li.slider)
+        val selectors = listOf(
+            "div#post-container article",
+            "div.gallery-grid article",
+            "article[itemscope]",
+            "li.slider article",
+            "article.item",
+            "article.item-infinite",
+            "div.gmr-item-modulepost",
+            "div.ml-item"
+        )
+        val items = selectors.flatMap { sel -> document.select(sel).mapNotNull { it.toSearchItem() } }
             .distinctBy { it.url }
-        return newHomePageResponse(request.name, items, hasNext = items.isNotEmpty())
+        // Fallback: jika masih kosong, coba selector generik figure a
+        val finalItems = if (items.isEmpty()) {
+            document.select("figure a[href]").mapNotNull { a ->
+                val article = a.closest("article") ?: a.parent()?.parent() ?: return@mapNotNull null
+                article.toSearchItem()
+            }.distinctBy { it.url }
+        } else items
+        return newHomePageResponse(request.name, finalItems, hasNext = finalItems.isNotEmpty())
     }
 
     private fun Element.toSearchItem(): SearchResponse? {
-        val titleEl = selectFirst("h2.entry-title > a, h3.entry-title > a, a[title] h2, .entry-title a") ?: return null
-        val title = titleEl.text()?.trim()?.takeIf { it.isNotBlank() } ?: return null
-        val href = fixUrl(titleEl.attr("href").ifBlank { selectFirst("a")?.attr("href") ?: return null })
+        // Support lk21official: h3.poster-title di figcaption, muvipro: h2.entry-title
+        val titleEl = selectFirst("h3.poster-title, h3, h2.entry-title > a, h3.entry-title > a, a[title] h2, .entry-title a, figcaption h3, .poster-title")
+            ?: selectFirst("a[title]") ?: return null
+        // Jika titleEl adalah <a>, ambil text nya; jika h3, ambil text h3
+        val title = when {
+            titleEl.tagName() == "a" -> titleEl.attr("title").ifBlank { titleEl.text() }.trim()
+            else -> titleEl.text().trim()
+        }.takeIf { it.isNotBlank() } ?: return null
+
+        // Cari href: prioritas dari figure a, lalu dari titleEl parent a
+        val hrefRaw = selectFirst("figure a[href], a[href]")?.attr("href")
+            ?: titleEl.attr("href").takeIf { it.isNotBlank() }
+            ?: selectFirst("a")?.attr("href") ?: return null
+        val href = fixUrl(hrefRaw)
+
         val poster = fixUrlNull(
-            selectFirst("a > img, img.wp-post-image, img.attachment-medium, img[data-src]")
+            selectFirst("img[data-src], img.lazyload, a > img, img.wp-post-image, img.attachment-medium, picture img, img[itemprop=image]")
                 ?.getImageAttr()
         )?.fixImageQuality()
 
-        val quality = selectFirst("div.gmr-qual, div.gmr-quality-item > a, span.quality, div.quality")?.text()?.trim()
-        val typeText = selectFirst("div.gmr-posttype-item, .post-type, div.gmr-numbeps")?.text()
-        val isSeries = href.contains("/tv/") || href.contains("/series/") ||
+        val quality = selectFirst("span.label-HD, span.label, div.gmr-qual, div.gmr-quality-item > a, span.quality, div.quality, .label-HD")?.text()?.trim()
+        val typeText = selectFirst("div.gmr-posttype-item, .post-type, div.gmr-numbeps, meta[itemprop=genre]")?.text()
+            ?: selectFirst("meta[itemprop=genre]")?.attr("content")
+        val isSeries = href.contains("/tv/") || href.contains("/series/") || href.contains("/nontondrama") ||
                 typeText?.contains("TV", true) == true ||
                 selectFirst("div.gmr-numbeps, span.episode-count") != null
 
-        // Detect type via URL / quality presence (mirip DutaMovie.kt:71)
         return if (isSeries) {
-            val ep = Regex("Episode\\s?(\\d+)").find(title)?.groupValues?.getOrNull(1)?.toIntOrNull()
-            newAnimeSearchResponse(title, href, TvType.TvSeries) {
+            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
                 this.posterUrl = poster
-                if (ep != null) addSub(ep)
             }
         } else {
             newMovieSearchResponse(title, href, TvType.Movie) {
@@ -132,17 +163,40 @@ class IDLIXProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        // IDLIX/LK21 search param: ?s= & post_type[]=post & post_type[]=tv
         val urlsToTry = listOf(
-            "$mainUrl/?s=$encoded&post_type[]=post&post_type[]=tv",
             "$mainUrl/?s=$encoded",
-            "$mainUrl/search/$encoded/"
+            "$mainUrl/?s=$encoded&post_type[]=post&post_type[]=tv",
+            "$mainUrl/search/$encoded/",
+            "$mainUrl/search/$encoded",
+            "$mainUrl/?search=$encoded"
+        )
+        val selectors = listOf(
+            "div#post-container article",
+            "div.gallery-grid article",
+            "article[itemscope]",
+            "article.item",
+            "article.item-infinite",
+            "div.result-item",
+            "div.ml-item",
+            "figure a"
         )
         for (url in urlsToTry) {
             val doc = getDocument(url) ?: continue
-            val results = doc.select("article.item, article.item-infinite, div.result-item, div.ml-item")
-                .mapNotNull { it.toSearchItem() }
-            if (results.isNotEmpty()) return results
+            for (sel in selectors) {
+                val results = doc.select(sel).mapNotNull {
+                    // Untuk figure a, perlu context article
+                    val el = if (sel == "figure a") it.closest("article") ?: it.parent()?.parent() ?: it else it
+                    el.toSearchItem()
+                }.distinctBy { it.url }
+                if (results.isNotEmpty()) return results
+            }
+            // Juga cek apakah hasil search mengandung query di title (filter false positive homepage)
+            val all = doc.select("article").mapNotNull { it.toSearchItem() }
+            if (all.isNotEmpty()) {
+                // Jika homepage ter-return (tidak filtered), tetap return tapi filter by query
+                val filtered = all.filter { it.name.contains(query, ignoreCase = true) }
+                if (filtered.isNotEmpty()) return filtered
+            }
         }
         return emptyList()
     }
@@ -152,29 +206,58 @@ class IDLIXProvider : MainAPI() {
             this.plot = "Gagal memuat halaman (semua mirror down)"
         }
 
-        val title = document.selectFirst("h1.entry-title, h1.mvic-desc h3, div.mvic-desc h3, h1")
-            ?.text()?.replace(SEASON_EP_CLEAN_REGEX, "")?.trim()?.ifBlank { null }
-            ?: document.selectFirst("title")?.text()?.substringBefore(" -")?.trim()
+        // Try lk21official watch-history-data JSON first
+        val watchData = document.selectFirst("script#watch-history-data")?.data()?.let { runCatching { it.trim() }.getOrNull() }
+        val watchTitle = Regex("\"title\"\\s*:\\s*\"([^\"]+)\"").find(watchData ?: "")?.groupValues?.getOrNull(1)
+        val watchYear = Regex("\"year\"\\s*:\\s*(\\d{4})").find(watchData ?: "")?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val watchPoster = Regex("\"poster\"\\s*:\\s*\"([^\"]+)\"").find(watchData ?: "")?.groupValues?.getOrNull(1)?.let { fixUrlNull(it) }
+        val watchRating = Regex("\"rating\"\\s*:\\s*\"([^\"]+)\"").find(watchData ?: "")?.groupValues?.getOrNull(1)
+
+        // Schema.org JSON-LD
+        val schemaScript = document.select("script[type=application/ld+json]").joinToString { it.data() }
+        val schemaTitle = Regex("\"name\"\\s*:\\s*\"([^\"]+)\"").find(schemaScript)?.groupValues?.getOrNull(1)?.let { it.substringBefore(" Sub Indo").trim() }
+        val schemaPoster = document.selectFirst("meta[property=og:image]")?.attr("content")?.let { fixUrlNull(it) }
+        val schemaDesc = Regex("\"description\"\\s*:\\s*\"([^\"]+)\"").find(schemaScript)?.groupValues?.getOrNull(1)
+        val schemaGenre = Regex("\"genre\"\\s*:\\s*\\[([^\\]]+)]").find(schemaScript)?.groupValues?.getOrNull(1)?.let {
+            Regex("\"([^\"]+)\"").findAll(it).map { g -> g.groupValues[1] }.toList()
+        } ?: emptyList()
+        val schemaActors = Regex("\"actor\"\\s*:\\s*\\[([^\\]]+)]").find(schemaScript)?.let {
+            Regex("\"name\"\\s*:\\s*\"([^\"]+)\"").findAll(schemaScript).map { m -> m.groupValues[1] }.toList()
+        } ?: emptyList()
+
+        val title = watchTitle
+            ?: schemaTitle
+            ?: document.selectFirst("h1.entry-title, h1.mvic-desc h3, div.mvic-desc h3, h1, .player-section-wrapper h1, header h1")
+                ?.text()?.replace(SEASON_EP_CLEAN_REGEX, "")?.trim()?.ifBlank { null }
+            ?: document.selectFirst("title")?.text()?.substringBefore(" -")?.substringBefore(" Lk21")?.trim()
             ?: "Unknown"
 
-        val poster = fixUrlNull(
-            document.selectFirst("figure.pull-left > img, div.thumb img, img.wp-post-image, .mvic-thumb img, .poster img")
-                ?.getImageAttr()
-        )?.fixImageQuality()
+        val poster = watchPoster
+            ?: schemaPoster
+            ?: fixUrlNull(
+                document.selectFirst("figure.pull-left > img, div.thumb img, img.wp-post-image, .mvic-thumb img, .poster img, .player-wrapper img, meta[property=og:image]")
+                    ?.getImageAttr() ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+            )?.fixImageQuality()
 
-        val tags = document.select("div.gmr-moviedata a[href*=genre], div.genres a, a[href*=genre]").map { it.text() }.distinct()
-        val year = document.selectFirst("div.gmr-moviedata strong:contains(Year:) > a, span.year a, a[href*=year], time[itemprop=dateCreated]")
-            ?.text()?.trim()?.toIntOrNull()
+        val tags = if (schemaGenre.isNotEmpty()) schemaGenre else document.select("div.gmr-moviedata a[href*=genre], div.genres a, a[href*=genre], a[href*=/genre/]").map { it.text() }.distinct()
+        val year = watchYear
+            ?: document.selectFirst("div.gmr-moviedata strong:contains(Year:) > a, span.year a, a[href*=year], time[itemprop=dateCreated]")
+                ?.text()?.trim()?.toIntOrNull()
+            ?: document.selectFirst("span.year, span[itemprop=datePublished]")?.text()?.trim()?.toIntOrNull()
             ?: Regex("\\b(19\\d{2}|20\\d{2})\\b").find(document.text())?.groupValues?.getOrNull(1)?.toIntOrNull()
 
-        val tvType = if (url.contains("/tv/") || url.contains("/series/") || document.select("div.vid-episodes, div.gmr-listseries, div.episodelist, div#episode-list").isNotEmpty()) TvType.TvSeries else TvType.Movie
-        val description = document.selectFirst("div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p, div.synopsis p, .mvic-desc p")
-            ?.text()?.trim()
+        val tvType = if (url.contains("/tv/") || url.contains("/series/") || url.contains("/nontondrama") || document.select("div.vid-episodes, div.gmr-listseries, div.episodelist, div#episode-list").isNotEmpty()) TvType.TvSeries else TvType.Movie
+        val description = schemaDesc
+            ?: document.selectFirst("div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p, div.synopsis p, .mvic-desc p, p:has(strong:contains(Cap Farewell))")
+                ?.text()?.trim()
+            ?: document.selectFirst("meta[name=description]")?.attr("content")
+            ?: document.selectFirst("meta[property=og:description]")?.attr("content")
         val trailer = document.selectFirst("ul.gmr-player-nav li a.gmr-trailer-popup, a.trailer, iframe[src*=youtube]")?.attr("href")?.takeIf { it.contains("youtube") }
-        val rating = document.selectFirst("div.gmr-meta-rating span[itemprop=ratingValue], span.imdb-r, div.rating b")?.text()?.trim()
-        val actors = document.select("span[itemprop=actors] a, div.cast a, a[href*=cast]").map { it.text() }.distinct()
+        val rating = watchRating ?: document.selectFirst("div.gmr-meta-rating span[itemprop=ratingValue], span.imdb-r, div.rating b, span[itemprop=ratingValue]")?.text()?.trim()
+        val actors = if (schemaActors.isNotEmpty()) schemaActors else document.select("span[itemprop=actors] a, div.cast a, a[href*=cast]").map { it.text() }.distinct()
         val duration = document.selectFirst("div.gmr-moviedata span[property=duration], span.runtime")?.text()?.replace(NON_DIGIT_REGEX, "")?.toIntOrNull()
-        val recommendations = document.select("article.item.col-md-20, div.movies-list article, div.ml-item").mapNotNull { it.toSearchItem() }.take(12)
+            ?: Regex("\"runtime\"\\s*:\\s*\"([^\"]+)\"").find(watchData ?: "")?.groupValues?.getOrNull(1)?.let { it.replace(NON_DIGIT_REGEX, "").toIntOrNull() }
+        val recommendations = document.select("article.item.col-md-20, div.movies-list article, div.ml-item, div.gallery-grid article").mapNotNull { it.toSearchItem() }.take(12)
 
         return if (tvType == TvType.TvSeries) {
             val episodes = parseEpisodes(document, url, poster)
@@ -255,11 +338,30 @@ class IDLIXProvider : MainAPI() {
 
         var found = false
 
-        // 1) Direct iframes (paling sering di IDLIX) - mirip DutaMovie.kt:182
+        // 1) LK21Official specific: main-player + player-list + player-select (videonode.de)
+        document.select("iframe#main-player, div.player-wrapper iframe, ul#player-list a[data-url], select#player-select option").forEach { el ->
+            val src = when (el.tagName()) {
+                "option" -> el.attr("value")
+                "a" -> el.attr("data-url").ifBlank { el.attr("href") }
+                else -> el.getIframeAttr()
+            }?.let { httpsify(it) }?.takeIf { it.isNotBlank() } ?: return@forEach
+            if (src.contains("youtube.com") || src.contains("youtu.be") || src.contains("facebook")) return@forEach
+            // Only process videonode / embed URLs
+            if (src.contains("videonode.de") || src.contains("/iframe/") || src.contains("/embed/") || src.contains("p2p") || src.contains("hydrax") || src.contains("turbovip")) {
+                found = true
+                loadExtractor(src, referer, subtitleCallback) { link -> callback(link) }
+                // Also try to fetch videonode page for direct m3u8 fallback
+                // Run async: let loadExtractor handle, but also generic regex fallback below will catch
+            }
+        }
+
+        // 1b) Direct iframes (paling sering di IDLIX muvipro) - mirip DutaMovie.kt:182
         document.select("div.gmr-embed-responsive iframe, div.player-embed iframe, iframe[data-litespeed-src], iframe[src]").forEach { iframe ->
             val src = iframe.getIframeAttr()?.let { httpsify(it) }?.takeIf { it.isNotBlank() } ?: return@forEach
             // Filter youtube/trailer
             if (src.contains("youtube.com") || src.contains("youtu.be")) return@forEach
+            // Skip if already handled above (videonode main-player)
+            if (iframe.attr("id") == "main-player") return@forEach
             found = true
             loadExtractor(src, referer, subtitleCallback) { link -> callback(link) }
         }

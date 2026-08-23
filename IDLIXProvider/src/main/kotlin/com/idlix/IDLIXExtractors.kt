@@ -88,3 +88,34 @@ class HxfileExtractor : ExtractorApi() {
         }
     }
 }
+
+class VideonodeExtractor : ExtractorApi() {
+    override val name = "Videonode"
+    override val mainUrl = "https://videonode.de"
+    override val requiresReferer = true
+    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (com.lagradost.cloudstream3.SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
+        val res = app.get(url, referer = referer ?: mainUrl, timeout = 15_000L).text
+        // videonode biasanya pakai packed js atau source file:"...m3u8"
+        val m3u8 = Regex("""file\s*:\s*["'](https[^"']+\.m3u8[^"']*)["']""").find(res)?.groupValues?.get(1)
+            ?: Regex("""source\s*src\s*=\s*["'](https[^"']+\.m3u8[^"']*)["']""").find(res)?.groupValues?.get(1)
+            ?: Regex("""(https?://[^"']+\.m3u8[^"']*)""").find(res)?.groupValues?.get(1)
+            ?: Regex("""src:\s*["'](https[^"']+)["']""").find(res)?.groupValues?.get(1)
+        if (m3u8 != null) {
+            val fixed = fixUrl(m3u8)
+            M3u8Helper.generateM3u8(name, fixed, "$mainUrl/").forEach(callback)
+            return
+        }
+        // Fallback: coba cari iframe lain di dalam videonode page
+        val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""").find(res)?.groupValues?.get(1)
+        if (iframe != null && iframe != url) {
+            com.lagradost.cloudstream3.utils.loadExtractor(fixUrl(iframe), referer, subtitleCallback, callback)
+        } else {
+            // Last resort: pass videonode url as direct if no m3u8 (player akan handle via webview)
+            callback(
+                newExtractorLink(name, name, url, ExtractorLinkType.M3U8) {
+                    this.referer = referer ?: mainUrl
+                }
+            )
+        }
+    }
+}

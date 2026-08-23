@@ -15,5 +15,6 @@ class IDLIXProviderPlugin : Plugin() {
         registerExtractorAPI(MixDropExtractor())
         registerExtractorAPI(StreamWishExtractorIdlix())
         registerExtractorAPI(HxfileExtractor())
+        registerExtractorAPI(VideonodeExtractor())
     }
 }
