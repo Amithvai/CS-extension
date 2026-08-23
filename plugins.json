@@ -359,10 +359,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://winbu.net&size=%size%",
-    "fileHash": "sha256-d30eef9d2638a097ba5d3fa859a54b03177d9434d3eda8ee2c4fa4af25bff170",
+    "fileHash": "sha256-a4066fe19cce54d015ad180ac14daa0381a5c5a39a03b2d062f29f2e8fd1108e",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 30996,
+    "fileSize": 31292,
     "status": 1,
     "language": "id",
     "authors": [
@@ -374,7 +374,7 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 4,
+    "version": 5,
     "internalName": "WinbuProvider",
     "description": "Winbu \u2014 Streaming Anime, Donghua, Film dan TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/WinbuProvider.cs3",
