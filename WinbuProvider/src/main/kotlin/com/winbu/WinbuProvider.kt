@@ -22,7 +22,7 @@ class WinbuProvider : MainAPI() {
         private val EPISODE_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
         private val RESOLUTION_REGEX = Regex("(\\d{3,4})\\s*p", RegexOption.IGNORE_CASE)
         private val YEAR_REGEX = Regex("\\((\\d{4})\\)")
-        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]+src="([^"]+)""""", RegexOption.IGNORE_CASE)
+        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]*src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val BROKEN_IFRAME = Regex("""(?:mega\.nz/embed/|vidhidepro\.com/v/?$|about:blank)""", RegexOption.IGNORE_CASE)
         private val BLOCKED_HOST = Regex("""https?://winbu\.org""")
 
@@ -225,7 +225,10 @@ class WinbuProvider : MainAPI() {
                 }.getOrNull() ?: run { Log.d("Winbu", "player_ajax null response nume=${player.nume}"); continue }
 
                 Log.d("Winbu", "player_ajax ok nume=${player.nume} len=${response.length} preview=${response.take(150)}")
-                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: run { Log.d("Winbu", "no iframe src in player_ajax nume=${player.nume}"); continue }
+                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: run {
+                    Log.d("Winbu", "no iframe src in player_ajax nume=${player.nume} hasIframe=${response.contains("iframe", ignoreCase = true)} cfChallenge=${response.contains("Just a moment")} len=${response.length} snippet=${response.take(300)}")
+                    continue
+                }
                 val url = httpsify(src).toMain().trim()
                 Log.d("Winbu", "player_ajax iframe url=$url")
                 if (url.endsWith("/#") || url.endsWith("/v/")) { Log.d("Winbu", "skip empty id $url"); continue }
