@@ -67,10 +67,10 @@
     "name": "DonghubProvider"
   },
   {
-    "fileHash": "sha256-afe180473d90f3f5edfcf1f677bf5c79e991d5023d794cbe140ae6a4acaf08cc",
+    "fileHash": "sha256-dcc36e85263a911f30ec9a874b7bae1021e484da040e4e977f9da2447b179fe2",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 94313,
+    "fileSize": 94932,
     "status": 1,
     "language": "id",
     "authors": [
@@ -111,10 +111,10 @@
     "name": "Dutamovie"
   },
   {
-    "fileHash": "sha256-fb7c8b116b600d0e208fdee77e41ef553e05d09e04e06fc83b56e4c342a4b18d",
+    "fileHash": "sha256-9bb3ca619cd0bcb77d60ac58a4a280b3fabde6f344670f1ad57f3da4ecf65014",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 43625,
+    "fileSize": 44279,
     "status": 1,
     "language": "id",
     "authors": [
