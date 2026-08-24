@@ -381,10 +381,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://winbu.net&size=%size%",
-    "fileHash": "sha256-a4066fe19cce54d015ad180ac14daa0381a5c5a39a03b2d062f29f2e8fd1108e",
+    "fileHash": "sha256-a1102295be3a2afc178d5f59ba92c2b63bbc9ef3fa22c689dee7f921d5b01c6b",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 31292,
+    "fileSize": 41931,
     "status": 1,
     "language": "id",
     "authors": [
