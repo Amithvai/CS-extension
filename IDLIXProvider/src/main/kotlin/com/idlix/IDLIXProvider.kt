@@ -23,16 +23,34 @@ import java.net.URLEncoder
 class IDLIXProvider : MainAPI() {
 
     companion object {
-        /** Daftar domain mirror - urutan prioritas, yang paling stabil di atas (lk21official terbukti 200 tanpa CF) */
+        /** Daftar domain mirror - urutan prioritas.
+         * CATATAN: tv3/tv4.idlixian.com dihapus (NXDOMAIN per logcat 2026-08-24).
+         * Domain mati akan otomatis di-skip via negative cache DEAD_TTL_MS. */
         val domains = listOf(
             "https://lk21official.wiki",
             "https://tv12.lk21official.cc",
-            "https://tv4.idlixian.com",
-            "https://tv3.idlixian.com",
             "https://idlixian.com",
             "https://idflix.my.id",
             "https://rebahinxxi.shop"
         )
+
+        /** Negative-cache domain yang gagal (DNS/403/timeout): skip selama 10 menit */
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
 
         private val IMAGE_SIZE_REGEX = Regex("(-\\d+x\\d*)")
         private val EPISODE_NUM_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
@@ -74,21 +92,26 @@ class IDLIXProvider : MainAPI() {
         "country/china/page/%d/" to "China"
     )
 
-    // Helper: coba fetch dengan fallback domain jika 403/timeout
+    // Helper: coba fetch dengan fallback domain jika 403/timeout/NXDOMAIN
+    // Domain gagal di-mark dead selama 10 menit agar tidak retry storm (logcat: NXDOMAIN spam)
     private suspend fun getDocument(url: String): Document? {
-        // Try requested URL first
-        runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()?.let { return it }
-        // Fallback: ganti host dengan mirror
-        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val uri = runCatching { URI(url) }.getOrNull()
+        val host = uri?.host
+        if (!isDead(host)) {
+            runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()?.let { return it }
+            markDead(host)
+        }
+        // Fallback: ganti host dengan mirror yang masih hidup
         for (domain in domains) {
             val mirrorHost = runCatching { URI(domain).host }.getOrNull() ?: continue
-            if (uri.host == mirrorHost) continue
-            val mirrorUrl = url.replace(uri.host, mirrorHost)
-            runCatching { app.get(mirrorUrl, timeout = 15_000L).document }.getOrNull()?.let {
-                // update mainUrl ke mirror yang berhasil
-                mainUrl = "https://${mirrorHost}"
-                return it
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, timeout = 15_000L).document }.getOrNull()
+            if (doc != null) {
+                mainUrl = "https://$mirrorHost"
+                return doc
             }
+            markDead(mirrorHost)
         }
         return null
     }

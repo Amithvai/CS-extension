@@ -29,7 +29,7 @@ class Drachin : MainAPI() {
     private companion object {
         private const val API_BASE = "https://api.sansekai.my.id/api"
         private const val API_TIMEOUT = 30_000L
-        private const val CACHE_TTL_MS = 10 * 60 * 1000L
+        private const val CACHE_TTL_MS = 30 * 60 * 1000L
         private const val MIN_REQUEST_GAP_MS = 2_000L
         private val HEADERS = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -39,6 +39,16 @@ class Drachin : MainAPI() {
         private val cacheLock = Any()
         private var lastRequestTime = 0L
         private val requestLock = Any()
+
+        /** Pesan error API terakhir (mis. blacklist IP) untuk ditampilkan ke user */
+        private var lastFetchError: String? = null
+
+        private val API_MESSAGE_REGEX = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"")
+
+        private fun extractApiMessage(text: String?): String? {
+            if (text == null) return null
+            return API_MESSAGE_REGEX.find(text)?.groupValues?.get(1)
+        }
 
         private fun isErrorResponse(text: String): Boolean {
             val t = text.trim()
@@ -84,11 +94,17 @@ class Drachin : MainAPI() {
         var body = throttledFetch(url)
         if (body == null) return null
         if (isErrorResponse(body)) {
+            // Simpan pesan API (mis. blacklist IP sansekai) agar error di layar jelas
+            lastFetchError = extractApiMessage(body) ?: "API menolak permintaan (rate-limit/blacklist)"
             // Rate limited / blacklisted: back off and retry once after the limit window
             delay(6_000L)
             body = throttledFetch(url)
-            if (body == null || isErrorResponse(body)) return null
+            if (body == null || isErrorResponse(body)) {
+                extractApiMessage(body)?.let { lastFetchError = it }
+                return null
+            }
         }
+        lastFetchError = null
         cachePut(url, body)
         return body
     }
@@ -192,7 +208,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadDramaBox(url: String, id: String): LoadResponse {
-        val detailText = fetchJson("$API_BASE/dramabox/detail?bookId=$id") ?: throw ErrorLoadingException("Gagal memuat detail DramaBox")
+        val detailText = fetchJson("$API_BASE/dramabox/detail?bookId=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "DramaBox: $it" } ?: "Gagal memuat detail DramaBox")
         val detail = tryParseJson<DramaBoxDetail>(detailText) ?: throw ErrorLoadingException("Detail DramaBox tidak valid")
         val title = detail.bookName?.takeIf { it.isNotBlank() } ?: "Drama"
         val poster = detail.coverWap
@@ -278,7 +295,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadPineDrama(url: String, id: String): LoadResponse {
-        val text = fetchJson("$API_BASE/pinedrama/detail?collection_id=$id") ?: throw ErrorLoadingException("Gagal memuat detail PineDrama")
+        val text = fetchJson("$API_BASE/pinedrama/detail?collection_id=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "PineDrama: $it" } ?: "Gagal memuat detail PineDrama")
         val detail = tryParseJson<PineDramaDetail>(text) ?: throw ErrorLoadingException("Detail PineDrama tidak valid")
         val title = detail.title?.takeIf { it.isNotBlank() } ?: "Drama"
         val poster = detail.coverUrls?.firstOrNull()
@@ -336,7 +354,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadReelShort(url: String, id: String): LoadResponse {
-        val text = fetchJson("$API_BASE/reelshort/detail?bookId=$id") ?: throw ErrorLoadingException("Gagal memuat detail ReelShort")
+        val text = fetchJson("$API_BASE/reelshort/detail?bookId=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "ReelShort: $it" } ?: "Gagal memuat detail ReelShort")
         val detail = tryParseJson<ReelShortDetail>(text) ?: throw ErrorLoadingException("Detail ReelShort tidak valid")
         val title = detail.title?.takeIf { it.isNotBlank() } ?: "Drama"
         val chapters = detail.chapters ?: emptyList()
@@ -392,7 +411,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadMelolo(url: String, id: String): LoadResponse {
-        val text = fetchJson("$API_BASE/melolo/detail?book_id=$id") ?: throw ErrorLoadingException("Gagal memuat detail Melolo")
+        val text = fetchJson("$API_BASE/melolo/detail?book_id=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "Melolo: $it" } ?: "Gagal memuat detail Melolo")
         val wrapper = tryParseJson<MeloloDetail>(text) ?: throw ErrorLoadingException("Detail Melolo tidak valid")
         val vd = wrapper.data?.videoData ?: throw ErrorLoadingException("Detail Melolo kosong")
         val title = vd.seriesTitle?.takeIf { it.isNotBlank() } ?: "Drama"
@@ -457,7 +477,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadFreeReels(url: String, id: String): LoadResponse {
-        val text = fetchJson("$API_BASE/freereels/detailAndAllEpisode?key=$id") ?: throw ErrorLoadingException("Gagal memuat detail FreeReels")
+        val text = fetchJson("$API_BASE/freereels/detailAndAllEpisode?key=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "FreeReels: $it" } ?: "Gagal memuat detail FreeReels")
         val detail = tryParseJson<FreeReelsDetail>(text) ?: throw ErrorLoadingException("Detail FreeReels tidak valid")
         val info = detail.data?.info ?: throw ErrorLoadingException("Detail FreeReels kosong")
         val title = info.name?.takeIf { it.isNotBlank() } ?: "Drama"
@@ -538,7 +559,8 @@ class Drachin : MainAPI() {
     }
 
     private suspend fun loadDramaNova(url: String, id: String): LoadResponse {
-        val text = fetchJson("$API_BASE/dramanova/detail?dramaId=$id") ?: throw ErrorLoadingException("Gagal memuat detail DramaNova")
+        val text = fetchJson("$API_BASE/dramanova/detail?dramaId=$id")
+            ?: throw ErrorLoadingException(lastFetchError?.let { "DramaNova: $it" } ?: "Gagal memuat detail DramaNova")
         val wrapper = tryParseJson<DramaNovaDetailWrapper>(text) ?: throw ErrorLoadingException("Detail DramaNova tidak valid")
         val detail = wrapper.data ?: throw ErrorLoadingException("Detail DramaNova kosong")
         val title = detail.title?.takeIf { it.isNotBlank() } ?: "Drama"
