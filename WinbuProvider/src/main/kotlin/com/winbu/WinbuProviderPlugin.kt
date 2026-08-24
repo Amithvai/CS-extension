@@ -10,5 +10,7 @@ class WinbuProviderPlugin : Plugin() {
         registerMainAPI(WinbuProvider())
         registerExtractorAPI(Winbustrp2p())
         registerExtractorAPI(Filedon())
+        registerExtractorAPI(AbyssExtractor())
+        registerExtractorAPI(AbyssPlayerExtractor())
     }
 }
