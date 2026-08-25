@@ -1,10 +1,10 @@
 [
   {
     "iconUrl": "https://anichin.ro/wp-content/uploads/2026/02/cropped-favicon-anichin-192x192.webp",
-    "fileHash": "sha256-1ed7cc849129490d8f61a23b0e478788808913639e4b09ba3acd8644a1e00196",
+    "fileHash": "sha256-971838d656d84ac6e65d88aca119d87820e763ad9f8c7122a41151a4eb8f9cc4",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 39800,
+    "fileSize": 40945,
     "status": 1,
     "language": "id",
     "authors": [
@@ -15,7 +15,7 @@
       "AnimeMovie",
       "Cartoon"
     ],
-    "version": 7,
+    "version": 8,
     "internalName": "AnichinProvider",
     "description": "Anichin - Streaming Donghua Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/AnichinProvider.cs3",
@@ -312,10 +312,10 @@
   },
   {
     "iconUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr-sfek8gXmLpcAppEpaYbUDVtndQbCm_boh1-E91QrmSvsw-2l3-s2JOP&s=10",
-    "fileHash": "sha256-bd6ec242c227e71249a0d39806f0ac8ced4f11c30e8da51d872769eb8dc1c2ad",
+    "fileHash": "sha256-c74f008f3f43222a7b18bc871a478589dbd26b07c3d76ce4efa2ae869f0b544f",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 35722,
+    "fileSize": 36519,
     "status": 1,
     "language": "id",
     "authors": [
