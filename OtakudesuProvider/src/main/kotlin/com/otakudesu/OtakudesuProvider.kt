@@ -288,6 +288,13 @@ class OtakudesuProvider : MainAPI() {
                         }
                     }
                 }
+
+                // Current episodes can expose the first player directly while the
+                // mirror list is loaded asynchronously. Keep that player usable.
+                document.select("#embed_holder iframe, .player-embed iframe, iframe[src]")
+                    .mapNotNull { it.attr("abs:src").takeIf(String::isNotBlank) }
+                    .distinct()
+                    .amap { source -> loadCustomExtractor(source, data, subtitleCallback, callback) }
             },
             {
                 document.select("div.download li").map { ele ->

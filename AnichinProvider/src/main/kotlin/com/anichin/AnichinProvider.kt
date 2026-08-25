@@ -3,7 +3,9 @@ package com.anichin
 import android.util.Base64
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
@@ -149,13 +151,36 @@ class AnichinProvider : MainAPI() {
             }
 
             links.filter { it.isNotBlank() }.amap { link ->
-                loadExtractor(fixUrl(link), data, subtitleCallback, callback)
+                val fixedLink = fixUrl(link)
+                if (fixedLink.contains("anichin.stream")) {
+                    loadAnichinStream(fixedLink, callback)
+                } else {
+                    loadExtractor(fixedLink, data, subtitleCallback, callback)
+                }
             }
 
             links.isNotEmpty()
         } catch (e: Exception) {
             throw ErrorLoadingException(e.message ?: "Gagal memuat video")
         }
+    }
+
+    // Player anichin.stream memakai JWPlayer dengan sumber HLS di path /hls/<id>.m3u8
+    // yang nilainya sama dengan parameter ?id= pada iframe embed.
+    private suspend fun loadAnichinStream(url: String, callback: (ExtractorLink) -> Unit) {
+        val streamId = java.net.URI(url).rawQuery
+            ?.split("&")
+            ?.firstOrNull { it.startsWith("id=") }
+            ?.substring(3)
+            ?: return
+
+        if (streamId.isBlank()) return
+
+        callback.invoke(
+            newExtractorLink("Anichin", "Anichin", "https://anichin.stream/hls/$streamId.m3u8", ExtractorLinkType.M3U8) {
+                this.referer = "https://anichin.stream/"
+            }
+        )
     }
 
     private fun decodeServerHash(hash: String): String? {
