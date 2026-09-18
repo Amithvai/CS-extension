@@ -39,21 +39,22 @@ https://raw.githubusercontent.com/Amithvai/CS-extension/master/repo.json
 
 | Provider | Tipe | Deskripsi |
 |:---------|:-----|:----------|
-| **Anichin** | Anime | Streaming Donghua Subtitle Indonesia |
-| **CineMax21** | Movie & TV | Streaming Movie dan TV Series (TMDB-based, multi-source) |
+| **Anichin** | Anime | Streaming Donghua Subtitle Indonesia (multi-domain + Dailymotion player) |
+| **Animeku** | Anime | Streaming Anime Subtitle Indonesia (AnimeKu Studio HLS player) |
 | **Donghub** | Anime | Streaming Donghua Subtitle Indonesia |
-| **Drachin** | Asian Drama | Streaming Drama China Sub Indo (YouTube) |
 | **DutaMovie** | Movie & TV | Streaming Movie dan TV Series |
-| **Kisskh** | Movie & TV | Streaming Movie dan TV Series (TMDB-based) |
-| **KlikXXI** | Movie & TV | Streaming Movie dan TV Series |
+| **IDLIX** | Movie & TV | IDLIX / LK21 / Rebahin (multi-domain, packed-JS player support) |
+| **Kisskh** | Movie & TV | Streaming Movie dan TV Series (multi-domain: ovh/co/do/id) |
+| **KlikXXI** | Movie & TV | Streaming Movie dan TV Series (lazy-load poster fix, 5 server) |
 | **Kuronime** | Anime | Streaming Anime Subtitle Indonesia |
 | **MovieBox** | Movie & TV | Streaming Movie, TV Series & Drama |
-| **NgeFilm21** | Movie & TV | Streaming Movie dan TV Series |
-| **Nomat** | Movie & TV | Streaming Movie dan TV Series |
-| **OneTouchTV** | Movie & TV | Streaming Movie dan TV Series (multi-source) |
+| **NgeFilm21** | Movie & TV | Streaming Movie dan TV Series (4 server + Abyss extractor) |
+| **Nomat** | Movie & TV | Streaming Movie dan TV Series (FileLions/FileMoon via nontonhemat) |
+| **OneTouchTV** | Movie & TV | Streaming Drama Asia (multi-source, HLS CDN) |
 | **OtakuDesu** | Anime | Streaming Anime Subtitle Indonesia |
 | **PencuriMovie** | Movie & TV | Streaming Movie dan TV Series |
 | **TorraStream** | Movie, TV & Anime | Multi-API berbasis Torrentio (TMDB + torrent indexer, magnet streaming) |
+| **Winbu** | Anime, Film & TV | Streaming Anime, Donghua, Film, TV Series (Filedon/Mega/Abyss/P2P) |
 
 
 ---
@@ -62,8 +63,11 @@ https://raw.githubusercontent.com/Amithvai/CS-extension/master/repo.json
 
 - Subtitle Indonesia untuk semua provider
 - Parallel loading untuk kecepatan optimal
+- Multi-domain fallback (domain mati di-skip otomatis via negative cache 10 menit)
+- URL normalization (riwayat/watchlist lama tetap jalan setelah domain pindah)
 - Support Movie, TV Series, Anime, dan Asian Drama
 - Multi-source extraction (jika satu source down, source lain tetap jalan)
+- Poster headers support (fix gambar 403 hotlink-protection)
 - Auto-update via GitHub Actions
 
 ---

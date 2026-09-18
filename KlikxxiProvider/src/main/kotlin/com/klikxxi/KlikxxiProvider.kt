@@ -14,6 +14,16 @@ import java.net.URLEncoder
 
 private val IMAGE_SIZE_REGEX = Regex("-\\d+x\\d+(?=\\.(webp|jpg|jpeg|png))", RegexOption.IGNORE_CASE)
 
+/** Placeholder lazy-load WordPress: data URI SVG 1x1 */
+private fun String?.isPlaceholderImage(): Boolean =
+    this.isNullOrBlank() || startsWith("data:image")
+
+/** Normalisasi URL gambar: buang placeholder, ambil versi tanpa suffix ukuran */
+private fun String?.asPosterUrl(): String? {
+    if (this.isPlaceholderImage()) return null
+    return this?.replace(IMAGE_SIZE_REGEX, "")
+}
+
 private fun Element?.getIframeAttr(): String? {
     return this?.let {
         val lsSrc = it.attr("data-litespeed-src")
@@ -21,34 +31,48 @@ private fun Element?.getIframeAttr(): String? {
     }
 }
 
+/**
+ * Ambil URL poster asli dengan prioritas:
+ *  1. srcset / data-lazy-srcset (resolusi terbaik, sudah absolut)
+ *  2. data-lazy-src / data-src (lazy-load asli)
+ *  3. src — hanya bila bukan placeholder data:image
+ *
+ * PENTING: KlikXXI memakai lazy-load plugin yang menaruh placeholder SVG
+ * di `src` dan gambar asli di `data-lazy-src`/`data-lazy-srcset`.
+ */
 private fun Element?.getPosterImageUrl(): String? {
     if (this == null) return null
 
-    if (hasAttr("srcset")) {
-        val best = attr("srcset").trim().split(",")
+    // 1) srcset (pilih kandidat terakhir = resolusi terbesar)
+    val srcsetRaw = when {
+        hasAttr("data-lazy-srcset") -> attr("data-lazy-srcset")
+        hasAttr("srcset") -> attr("srcset")
+        else -> null
+    }
+    if (!srcsetRaw.isNullOrBlank()) {
+        val best = srcsetRaw.trim().split(",")
             .map { it.trim().split(" ")[0] }
-            .lastOrNull()
-        if (!best.isNullOrBlank()) return best.replace(IMAGE_SIZE_REGEX, "")
+            .lastOrNull { !it.isPlaceholderImage() }
+        best.asPosterUrl()?.let { return it }
     }
 
+    // 2) data-lazy-src / data-src
     val dataSrc = when {
         hasAttr("data-lazy-src") -> attr("data-lazy-src")
         hasAttr("data-src") -> attr("data-src")
         else -> null
     }
-    if (!dataSrc.isNullOrBlank()) return dataSrc.replace(IMAGE_SIZE_REGEX, "")
+    dataSrc.asPosterUrl()?.let { return it }
 
-    val src = attr("src")
-    if (!src.isNullOrBlank()) return src.replace(IMAGE_SIZE_REGEX, "")
-
-    return null
+    // 3) src — tolak placeholder
+    return attr("src").asPosterUrl()
 }
 
 class KlikxxiProvider : MainAPI() {
     companion object {
         private const val SEL_ARTICLE = "article.item, div.gmr-item-modulepost, article.item-infinite"
         private const val SEL_TITLE = "h1.entry-title, h2.entry-title, div.mvic-desc h3"
-        private const val SEL_POSTER = "figure.pull-left > img, .mvic-thumb img, .poster img, figcaption img[src*='klikxxi']"
+        private const val SEL_POSTER = "figure.pull-left > img, .mvic-thumb img, .poster img, .content-thumbnail img, img.wp-post-image, img[itemprop=image]"
         private const val SEL_DESC = "div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p"
         private const val SEL_RECOMMEND = "article.item.col-md-20, article.item-infinite.col-md-20, div.gmr-recent-posts-wrapper article"
         private const val SEL_SEASON_BLOCK = "div.gmr-season-block, .season-block"
@@ -175,9 +199,11 @@ class KlikxxiProvider : MainAPI() {
 
         if (title.isBlank()) return null
 
-        val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img[src*='klikxxi.shop'], img.wp-post-image, img.attachment-medium")
-            ?.attr("src")
-            ?.let { it?.let { url -> fixUrl(url) } }
+        val posterUrl = this.selectFirst(
+            ".wp-block-post-featured-image img, .wp-block-post-featured-image a img, " +
+            "figure.wp-block-post-featured-image img, .content-thumbnail img, " +
+            "img.wp-post-image, img.attachment-large, img.attachment-medium, img[itemprop=image]"
+        )?.getPosterImageUrl()?.let { fixUrl(it) }
             ?.ifBlank {
                 attr("data-bg")?.let { fixUrl(it) }
             }
@@ -220,10 +246,11 @@ class KlikxxiProvider : MainAPI() {
         val title = selectFirst("h2.entry-title a, h3.entry-title a")?.text()?.trim() ?: return null
         val hrefAttr = selectFirst("a")?.attr("href") ?: return null
         val href = fixUrl(hrefAttr)
-        val posterUrl = this.selectFirst(".wp-block-post-featured-image img, .wp-block-post-featured-image a img, figure.wp-block-post-featured-image img, img.wp-post-image")
-            ?.attr("src")
-            ?.takeIf { !it.isNullOrBlank() }
-            ?.let { url -> fixUrl(url) }
+        val posterUrl = this.selectFirst(
+            ".wp-block-post-featured-image img, .wp-block-post-featured-image a img, " +
+            "figure.wp-block-post-featured-image img, .content-thumbnail img, " +
+            "img.wp-post-image, img.attachment-large, img.attachment-medium, img[itemprop=image]"
+        )?.getPosterImageUrl()?.let { fixUrl(it) }
         
         val typeText = selectFirst(".gmr-posttype-item, .post-type, .movie-type")?.text()?.trim()
         val isSeries = typeText.equals("TV Show", ignoreCase = true) || selectFirst(".tv-series, .series-type") != null
@@ -250,8 +277,8 @@ class KlikxxiProvider : MainAPI() {
 
         val poster = document
             .selectFirst(SEL_POSTER)
-            ?.attr("src")
-            ?.let { it?.let { s -> fixUrl(s) } }
+            ?.getPosterImageUrl()
+            ?.let { fixUrl(it) }
 
         val description = document.selectFirst(SEL_DESC)?.text()?.trim()
 
@@ -374,7 +401,7 @@ class KlikxxiProvider : MainAPI() {
         val document = fetchDocument(safeData)
             ?: throw ErrorLoadingException("Gagal memuat video")
         
-        var postId = document
+        val postId = document
             .selectFirst(SEL_PLAYER_ID)?.attr("data-id")
             ?: document.selectFirst("[data-post-id]")?.text()?.trim()
             ?: document.selectFirst("#post_id, input[name=post_id]")?.attr("value")
@@ -382,14 +409,12 @@ class KlikxxiProvider : MainAPI() {
         if (postId.isNullOrBlank()) return false
 
         var foundAny = false
-        document.select(SEL_TAB_CONTENT).amap { tab ->
-            var tabId = tab.attr("id")
-            
-            if (tabId.isNullOrBlank()) {
-                tabId = tab.attr("data-tab") ?: tab.attr("name")
-            }
-            
-            if (tabId.isNullOrBlank()) return@amap
+        val tabs = document.select(SEL_TAB_CONTENT)
+
+        // AJAX paralel ke semua server (sebelumnya sequential = lambat)
+        tabs.amap { tab ->
+            val tabId = tab.attr("id").ifBlank { tab.attr("data-tab") }.ifBlank { tab.attr("name") }
+            if (tabId.isBlank()) return@amap
 
             val response = runCatching {
                 app.post(
@@ -400,23 +425,38 @@ class KlikxxiProvider : MainAPI() {
                         "post_id" to postId
                     ),
                     headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest"
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to safeData
                     ),
-                    timeout = 15_000L
+                    timeout = 12_000L
                 ).document
             }.getOrNull() ?: return@amap
 
-            val iframe = response.selectFirst("iframe")?.getIframeAttr() 
+            val iframe = response.selectFirst("iframe")?.getIframeAttr()
                 ?: response.selectFirst("source[src]")?.attr("src")
                 ?: response.text().substringAfter("window.location.href = \"").substringBefore("\"")
-                
             if (iframe.isNullOrBlank()) return@amap
-            
-            val link = httpsify(iframe)
 
-            loadExtractor(link, safeData, subtitleCallback) {
-                foundAny = true
-                callback(it)
+            val link = httpsify(iframe)
+            runCatching {
+                loadExtractor(link, safeData, subtitleCallback) {
+                    foundAny = true
+                    callback(it)
+                }
+            }
+        }
+
+        // Fallback: cari iframe langsung di halaman (bila tab-content tidak ada)
+        if (!foundAny) {
+            document.select("div.gmr-embed-responsive iframe, .player-embed iframe, iframe[src]").amap { iframe ->
+                val src = iframe.getIframeAttr() ?: return@amap
+                if (src.contains("youtube")) return@amap
+                runCatching {
+                    loadExtractor(httpsify(src), safeData, subtitleCallback) {
+                        foundAny = true
+                        callback(it)
+                    }
+                }
             }
         }
 

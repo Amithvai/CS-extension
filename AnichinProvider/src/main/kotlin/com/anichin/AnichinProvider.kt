@@ -51,6 +51,12 @@ class AnichinProvider : MainAPI() {
             "anichin.cafe", "anichin.moe", "anichin.care", "anichin.id",
             "anichin.site", "anichin.stream"
         )
+
+        /** Header untuk load gambar (hotlink protection) */
+        private val POSTER_HEADERS = mapOf(
+            "Referer" to "https://anichin.moe/",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        )
     }
 
     override var mainUrl = domains.first()
@@ -108,11 +114,12 @@ class AnichinProvider : MainAPI() {
     }
 
     private fun Element.getImageAttr(): String? {
+        // Utamakan srcset (resolusi lebih baik), lalu data-src (lazy), fallback src
         return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
+            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ").takeIf { it.isNotBlank() }
+            hasAttr("data-src") -> attr("abs:data-src").takeIf { it.isNotBlank() }
+            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src").takeIf { it.isNotBlank() }
+            else -> attr("abs:src").takeIf { it.isNotBlank() }
         }
     }
 
@@ -145,6 +152,7 @@ class AnichinProvider : MainAPI() {
 
         return newAnimeSearchResponse(title, fixUrl(href), type) {
             posterUrl = poster
+            posterHeaders = POSTER_HEADERS
             addSub(episode)
         }
     }
@@ -169,7 +177,8 @@ class AnichinProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = fetchDocument(normalizeUrl(url))
+        val safeUrl = normalizeUrl(url)
+        val document = fetchDocument(safeUrl)
         val title = document.selectFirst(".entry-title, h1.entry-title, .post-title h1, [itemprop*=name] h1")?.text()?.trim()
             ?: throw ErrorLoadingException("Title not found")
         val poster = document.selectFirst(".thumb img, .bigcontent .thumb img")?.getImageAttr()
@@ -181,21 +190,27 @@ class AnichinProvider : MainAPI() {
             document.select(".spe span").firstOrNull { it.text().contains("Released:", true) }?.text().orEmpty()
         )?.groupValues?.getOrNull(1)?.toIntOrNull()
 
+        // Episode list: support theme themesia (.eplister) + fallback lain.
+        // Penting: ambil href absolut via fixUrl agar tidak bergantung attr abs: (jsoup abs
+        // hanya valid bila base URI diketahui; di sini kita normalisasi manual).
         val episodes = document.select(".eplister ul li a, .episode-list a, [id*=episode] li a").mapNotNull { element ->
-            val href = element.attr("abs:href").ifBlank { return@mapNotNull null }
+            val rawHref = element.attr("href").ifBlank { element.attr("abs:href") }
+            if (rawHref.isBlank()) return@mapNotNull null
             val number = element.selectFirst(".epl-num")?.text()?.replace(NON_DIGIT_REGEX, "")?.toIntOrNull()
             val name = element.selectFirst(".epl-title")?.text()?.trim()
-            newEpisode(fixUrl(href)) {
+            newEpisode(fixUrl(rawHref)) {
                 this.episode = number
                 this.name = name
+                this.posterUrl = poster
             }
         }.reversed()
 
         val recommendations = document.select(".bixbox:has(h3:contains(Recommended Series)) .listupd article")
             .mapNotNull { it.toSearchResult() }
 
-        return newAnimeLoadResponse(title, fixUrl(url), TvType.Anime) {
+        return newAnimeLoadResponse(title, safeUrl, TvType.Anime) {
             posterUrl = poster
+            posterHeaders = POSTER_HEADERS
             plot = description
             this.tags = tags
             this.year = year
@@ -212,28 +227,49 @@ class AnichinProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         return try {
-            val document = fetchDocument(normalizeUrl(data))
-            val links = mutableSetOf<String>()
+            val safeData = normalizeUrl(data)
+            val document = fetchDocument(safeData)
+            val links = linkedSetOf<String>()
 
+            // 1) Iframe utama (#embed_holder / .player-embed) — ambil src apa adanya
             document.select("#embed_holder iframe[src], .player-embed iframe[src], [id*=player] iframe[src]")
-                .mapTo(links) { it.attr("abs:src").ifBlank { it.attr("src") } }
-            document.select("select.mirror option[value]").amap { option ->
+                .mapTo(links) { it.attr("src").ifBlank { it.attr("abs:src") } }
+
+            // 2) Server mirror: base64-encoded HTML berisi iframe
+            document.select("select.mirror option[value], .mobius option[value]").amap { option ->
                 val decoded = decodeServerHash(option.attr("value")) ?: return@amap
                 Jsoup.parse(decoded).select("iframe[src]").mapTo(links) { it.attr("src") }
             }
 
+            if (links.isEmpty()) {
+                throw ErrorLoadingException("Tidak ada server video di halaman ini")
+            }
+
+            var found = false
             links.filter { it.isNotBlank() }.amap { link ->
                 val fixedLink = fixUrl(link)
                 when {
                     // Player lama (mati) tetap didukung bila muncul kembali
-                    fixedLink.contains("anichin.stream") -> loadAnichinStream(fixedLink, callback)
+                    fixedLink.contains("anichin.stream") -> {
+                        if (loadAnichinStream(fixedLink, callback)) found = true
+                    }
                     // Player baru: anichin-player.web.id membungkus Dailymotion
-                    fixedLink.contains("anichin-player.web.id") -> loadAnichinPlayer(fixedLink, callback, subtitleCallback)
-                    else -> loadExtractor(fixedLink, data, subtitleCallback, callback)
+                    fixedLink.contains("anichin-player.web.id") -> {
+                        if (loadAnichinPlayer(fixedLink, callback, subtitleCallback)) found = true
+                    }
+                    else -> {
+                        val ok = runCatching {
+                            loadExtractor(fixedLink, safeData, subtitleCallback, callback)
+                            true
+                        }.getOrDefault(false)
+                        if (ok) found = true
+                    }
                 }
             }
 
-            links.isNotEmpty()
+            found
+        } catch (e: ErrorLoadingException) {
+            throw e
         } catch (e: Exception) {
             throw ErrorLoadingException(e.message ?: "Gagal memuat video")
         }
@@ -241,55 +277,67 @@ class AnichinProvider : MainAPI() {
 
     // Player anichin.stream (lama) memakai JWPlayer dengan sumber HLS di path /hls/<id>.m3u8
     // yang nilainya sama dengan parameter ?id= pada iframe embed.
-    private suspend fun loadAnichinStream(url: String, callback: (ExtractorLink) -> Unit) {
+    private suspend fun loadAnichinStream(url: String, callback: (ExtractorLink) -> Unit): Boolean {
         val streamId = URI(url).rawQuery
             ?.split("&")
             ?.firstOrNull { it.startsWith("id=") }
             ?.substring(3)
-            ?: return
+            ?: return false
 
-        if (streamId.isBlank()) return
+        if (streamId.isBlank()) return false
 
         callback.invoke(
             newExtractorLink("Anichin", "Anichin", "https://anichin.stream/hls/$streamId.m3u8", ExtractorLinkType.M3U8) {
                 this.referer = "https://anichin.stream/"
             }
         )
+        return true
     }
 
     /**
      * Player baru Anichin (anichin-player.web.id/index.php?video=<dailymotionId>).
-     * Halaman ini hanya membungkus iframe geo.dailymotion.com, jadi kita ekstrak
-     * src iframe-nya lalu serahkan ke loadExtractor (Dailymotion extractor).
+     * Halaman ini hanya membungkus iframe geo.dailymotion.com.
+     * Strategi:
+     *  1. Fetch halaman (wajib pakai Referer anichin.moe, jika tidak → 403)
+     *  2. Ambil src iframe dailymotion
+     *  3. Serahkan ke loadExtractor (Dailymotion extractor)
+     *  4. Fallback: rakit URL dari parameter ?video=
      */
     private suspend fun loadAnichinPlayer(
         url: String,
         callback: (ExtractorLink) -> Unit,
         subtitleCallback: (SubtitleFile) -> Unit
-    ) {
+    ): Boolean {
+        val videoId = URI(url).rawQuery
+            ?.split("&")
+            ?.firstOrNull { it.startsWith("video=") }
+            ?.substringAfter("=")
+            ?.takeIf { it.isNotBlank() }
+
         val doc = runCatching {
             app.get(url, referer = "$mainUrl/", timeout = 15_000L).document
         }.getOrNull()
 
         val iframeSrc = doc?.selectFirst("iframe[src]")?.attr("src")
         if (!iframeSrc.isNullOrBlank()) {
-            loadExtractor(fixUrl(iframeSrc), "$mainUrl/", subtitleCallback, callback)
-            return
+            val ok = runCatching {
+                loadExtractor(fixUrl(iframeSrc), "$mainUrl/", subtitleCallback, callback)
+                true
+            }.getOrDefault(false)
+            if (ok) return true
         }
 
-        // Fallback: rakit URL Dailymotion dari parameter ?video=
-        val videoId = URI(url).rawQuery
-            ?.split("&")
-            ?.firstOrNull { it.startsWith("video=") }
-            ?.substringAfter("=")
-            ?: return
-        if (videoId.isBlank()) return
-        loadExtractor(
-            "https://geo.dailymotion.com/player.html?video=$videoId",
-            "$mainUrl/",
-            subtitleCallback,
-            callback
-        )
+        // Fallback: rakit URL Dailymotion langsung dari parameter ?video=
+        if (videoId == null) return false
+        return runCatching {
+            loadExtractor(
+                "https://geo.dailymotion.com/player.html?video=$videoId",
+                "$mainUrl/",
+                subtitleCallback,
+                callback
+            )
+            true
+        }.getOrDefault(false)
     }
 
     private fun decodeServerHash(hash: String): String? {

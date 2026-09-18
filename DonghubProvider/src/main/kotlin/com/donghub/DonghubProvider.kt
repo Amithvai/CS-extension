@@ -44,6 +44,18 @@ class DonghubProvider : MainAPI() {
         }
 
         private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
+
+        /** Header wajib untuk load gambar donghive.vip (hotlink protection: 403 tanpa Referer) */
+        private val POSTER_HEADERS = mapOf(
+            "Referer" to "https://donghive.vip/",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        )
+
+        /** Regex fallback: cari URL player di dalam HTML mentah (untuk player JS-rendered) */
+        private val PLAYER_URL_REGEX = Regex(
+            """(?:src|data-src)\s*=\s*["'](https?://[^"']*(?:dailymotion\.com|ok\.ru|turbovid|abyssplayer|streamruby|morencius|rpmvid|archive\.org)[^"']*)["']""",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     override var mainUrl = domains.first()
@@ -109,6 +121,8 @@ class DonghubProvider : MainAPI() {
         val poster = selectFirst("img")?.getsrcAttribute()
         return newAnimeSearchResponse(title, fixUrl(href), TvType.Anime) {
             this.posterUrl = poster
+            // Gambar donghive.vip dilindungi hotlink-protection: butuh Referer
+            this.posterHeaders = POSTER_HEADERS
         }
     }
 
@@ -151,6 +165,7 @@ class DonghubProvider : MainAPI() {
 
             newTvSeriesLoadResponse(title, fixUrl(url), TvType.Anime, episodes) {
                 this.posterUrl = fixUrlNull(poster)
+                this.posterHeaders = POSTER_HEADERS
                 this.plot = description
             }
         } else {
@@ -160,6 +175,7 @@ class DonghubProvider : MainAPI() {
 
             newMovieLoadResponse(title, fixUrl(url), TvType.Movie, movieLink) {
                 this.posterUrl = fixUrlNull(poster)
+                this.posterHeaders = POSTER_HEADERS
                 this.plot = description
             }
         }
@@ -171,9 +187,12 @@ class DonghubProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = fetchDocument(normalizeUrl(data))
+        val safeData = normalizeUrl(data)
+        val document = fetchDocument(safeData)
         var foundAny = false
+        val referer = safeData
 
+        // 1) Server mirror (base64-encoded iframe di select.mirror / .mobius)
         val serverOptions = document.select(".mobius option, select.mirror option")
         if (serverOptions.isNotEmpty()) {
             for (item in serverOptions) {
@@ -187,24 +206,38 @@ class DonghubProvider : MainAPI() {
                     if (iframeSrc.isBlank()) continue
 
                     foundAny = true
-                    loadExtractor(fixUrl(iframeSrc), data, subtitleCallback, callback)
+                    loadExtractor(fixUrl(iframeSrc), referer, subtitleCallback, callback)
                 } catch (_: Exception) {}
             }
         }
 
+        // 2) Iframe langsung dari #embed_holder / .player-embed / semua iframe umum
         val directIframes = document.select(
-            "div#embed_holder iframe, div.player iframe, div.embed-responsive iframe, " +
+            "div#embed_holder iframe, .player-embed iframe, div.player iframe, " +
+            "div.embed-responsive iframe, div#player iframe, iframe.video-player, " +
             "iframe[src*=dailymotion], iframe[src*=ok.ru], iframe[src*=archive.org], " +
-            "iframe[src*=youtube], iframe[src*=rpmvid], div#player iframe, iframe.video-player"
+            "iframe[src*=youtube], iframe[src*=rpmvid], iframe[src*=turbovid], " +
+            "iframe[src*=abyss], iframe[src*=streamruby], iframe[src*=morencius]"
         )
         for (iframe in directIframes) {
             try {
-                val src = iframe.attr("src")
-                if (src.isNotBlank()) {
+                val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }
+                if (src.isNotBlank() && !src.contains("about:blank")) {
                     foundAny = true
-                    loadExtractor(fixUrl(src), data, subtitleCallback, callback)
+                    loadExtractor(fixUrl(src), referer, subtitleCallback, callback)
                 }
             } catch (_: Exception) {}
+        }
+
+        // 3) Fallback: scan seluruh HTML untuk link player (untuk player JS-rendered)
+        if (!foundAny) {
+            val html = document.html()
+            PLAYER_URL_REGEX.findAll(html).forEach { m ->
+                try {
+                    foundAny = true
+                    loadExtractor(fixUrl(m.groupValues[1]), referer, subtitleCallback, callback)
+                } catch (_: Exception) {}
+            }
         }
 
         if (!foundAny) throw ErrorLoadingException("Tidak ada source tersedia")

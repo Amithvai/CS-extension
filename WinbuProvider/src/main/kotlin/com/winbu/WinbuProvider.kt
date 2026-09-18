@@ -23,7 +23,14 @@ class WinbuProvider : MainAPI() {
         private val RESOLUTION_REGEX = Regex("(\\d{3,4})\\s*p", RegexOption.IGNORE_CASE)
         private val YEAR_REGEX = Regex("\\((\\d{4})\\)")
         private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]*src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-        private val BROKEN_IFRAME = Regex("""(?:mega\.nz/embed/|vidhidepro\.com/v/?$|about:blank)""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Iframe yang benar-benar tidak bisa diekstrak.
+         * CATATAN: mega.nz/embed SEBELUMNYA di-skip, tapi CloudStream punya
+         * extractor bawaan untuk Mega — jadi sekarang TIDAK di-skip lagi.
+         * vidhidepro dengan path kosong tetap di-skip (tidak ada video id).
+         */
+        private val BROKEN_IFRAME = Regex("""(?:about:blank|vidhidepro\.com/v/?$)""", RegexOption.IGNORE_CASE)
 
         /** Domain lama winbu.net (sekarang 301 → winbu.org).
          * Dulu di-normalisasi ke winbu.net karena Cloudflare blok poster winbu.org,
@@ -207,9 +214,11 @@ class WinbuProvider : MainAPI() {
         }
 
         var foundAny = false
-        for (player in players) {
+
+        // Proses semua server secara PARALEL (sebelumnya sequential → lambat).
+        // amap membatasi concurrency agar tidak membanjiri server.
+        players.amap { player ->
             try {
-                Log.d("Winbu", "loadLinks: player_ajax post=${player.post} nume=${player.nume} type=${player.type}")
                 val response = runCatching {
                     app.post(
                         "$mainUrl/wp-admin/admin-ajax.php",
@@ -224,19 +233,14 @@ class WinbuProvider : MainAPI() {
                             "Referer" to safeData,
                             "Accept" to "text/html, */*; q=0.01"
                         ),
-                        timeout = 15_000L
+                        timeout = 12_000L
                     ).text
-                }.getOrNull() ?: run { Log.d("Winbu", "player_ajax null response nume=${player.nume}"); continue }
+                }.getOrNull() ?: return@amap
 
-                Log.d("Winbu", "player_ajax ok nume=${player.nume} len=${response.length} preview=${response.take(150)}")
-                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: run {
-                    Log.d("Winbu", "no iframe src in player_ajax nume=${player.nume} hasIframe=${response.contains("iframe", ignoreCase = true)} cfChallenge=${response.contains("Just a moment")} len=${response.length} snippet=${response.take(300)}")
-                    continue
-                }
+                val src = IFRAME_SRC_REGEX.find(response)?.groupValues?.get(1) ?: return@amap
                 val url = httpsify(src).toMain().trim()
-                Log.d("Winbu", "player_ajax iframe url=$url")
-                if (url.endsWith("/#") || url.endsWith("/v/")) { Log.d("Winbu", "skip empty id $url"); continue }
-                if (BROKEN_IFRAME.containsMatchIn(url)) { Log.d("Winbu", "skip BROKEN $url"); continue }
+                if (url.endsWith("/#") || url.endsWith("/v/")) return@amap
+                if (BROKEN_IFRAME.containsMatchIn(url)) return@amap
 
                 var produced = false
                 runCatching {
@@ -244,27 +248,73 @@ class WinbuProvider : MainAPI() {
                         player.quality?.let { link.quality = it }
                         produced = true
                         foundAny = true
-                        Log.d("Winbu", "loadExtractor produced ${link.url} quality=${link.quality}")
                         callback(link)
                     }
-                }.onFailure { Log.d("Winbu", "loadExtractor exception for $url : ${it.message}") }
-                Log.d("Winbu", "loadExtractor produced=$produced for $url")
+                }
                 // Inline fallback untuk host yang extractor core mungkin gagal
                 if (!produced && url.contains("filedon.co")) {
-                    val ok = extractFiledonInline(url, safeData, callback)
-                    Log.d("Winbu", "filedon inline fallback ok=$ok for $url")
-                    if (ok) foundAny = true
+                    if (extractFiledonInline(url, safeData, callback)) foundAny = true
+                }
+                // P2P player (winbu.strp2p.com) — coba fetch langsung untuk cari m3u8
+                if (!produced && url.contains("strp2p")) {
+                    if (extractStrP2pInline(url, safeData, callback)) foundAny = true
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                Log.d("Winbu", "player loop exception nume=${player.nume}: ${e.message}")
-                continue
+            } catch (_: Exception) {
+                // lanjut ke server berikutnya
             }
         }
 
-        Log.d("Winbu", "loadLinks final foundAny=$foundAny")
         return foundAny
+    }
+
+    /**
+     * P2P player winbu.strp2p.com — SPA yang memuat konfigurasi dari API-nya.
+     * Coba ambil m3u8 dari response API atau HTML yang dirender.
+     */
+    private suspend fun extractStrP2pInline(
+        url: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        return try {
+            val base = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+            val origin = "${base.scheme}://${base.host}"
+            val videoId = url.substringAfter("#", "")
+
+            // Coba endpoint API umum untuk player P2P ini
+            val candidates = buildList {
+                if (videoId.isNotBlank()) {
+                    add("$origin/api/video/$videoId")
+                    add("$origin/api/stream/$videoId")
+                }
+                add(url)
+            }
+
+            for (candidate in candidates) {
+                val text = runCatching {
+                    app.get(candidate, referer = referer, timeout = 10_000L).text
+                }.getOrNull() ?: continue
+                val m3u8 = Regex("""["'](https?://[^"']+\.m3u8[^"']*)["']""").find(text)
+                    ?.groupValues?.getOrNull(1)
+                    ?.replace("\\/", "/") ?: continue
+                callback.invoke(
+                    newExtractorLink("Winbu P2P", "Winbu P2P", m3u8, com.lagradost.cloudstream3.utils.ExtractorLinkType.M3U8) {
+                        this.referer = referer
+                        this.headers = mapOf(
+                            "Referer" to referer,
+                            "Origin" to origin,
+                            "User-Agent" to USER_AGENT
+                        )
+                    }
+                )
+                return true
+            }
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // Inline extractor Filedon — fallback jika loadExtractor tidak menemukan handler

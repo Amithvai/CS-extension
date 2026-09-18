@@ -196,13 +196,24 @@ class IDLIXProvider : MainAPI() {
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
                 this.posterUrl = poster
+                this.posterHeaders = posterHeadersFor(href)
             }
         } else {
             newMovieSearchResponse(title, href, TvType.Movie) {
                 this.posterUrl = poster
+                this.posterHeaders = posterHeadersFor(href)
                 if (!quality.isNullOrBlank()) addQuality(quality.replace("-", ""))
             }
         }
+    }
+
+    /** Header referer untuk load gambar (hotlink protection per domain) */
+    private fun posterHeadersFor(url: String): Map<String, String> {
+        val host = runCatching { URI(url).host }.getOrNull() ?: return emptyMap()
+        return mapOf(
+            "Referer" to "https://$host/",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        )
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -308,6 +319,7 @@ class IDLIXProvider : MainAPI() {
             val episodes = parseEpisodes(document, safeUrl, poster)
             newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
+                this.posterHeaders = posterHeadersFor(safeUrl)
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -320,6 +332,7 @@ class IDLIXProvider : MainAPI() {
         } else {
             newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 this.posterUrl = poster
+                this.posterHeaders = posterHeadersFor(safeUrl)
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -383,6 +396,8 @@ class IDLIXProvider : MainAPI() {
         val document = getDocument(safeData) ?: throw ErrorLoadingException("Gagal memuat video (semua mirror down)")
 
         var found = false
+        // Kumpulkan URL player unik agar tidak diproses dobel
+        val playerUrls = linkedSetOf<String>()
 
         // 1) LK21Official specific: main-player + player-list + player-select (videonode.de)
         document.select("iframe#main-player, div.player-wrapper iframe, ul#player-list a[data-url], select#player-select option").forEach { el ->
@@ -392,24 +407,31 @@ class IDLIXProvider : MainAPI() {
                 else -> el.getIframeAttr()
             }?.let { httpsify(it) }?.takeIf { it.isNotBlank() } ?: return@forEach
             if (src.contains("youtube.com") || src.contains("youtu.be") || src.contains("facebook")) return@forEach
-            // Only process videonode / embed URLs
             if (src.contains("videonode.de") || src.contains("/iframe/") || src.contains("/embed/") || src.contains("p2p") || src.contains("hydrax") || src.contains("turbovip")) {
-                found = true
-                loadExtractor(src, referer, subtitleCallback) { link -> callback(link) }
-                // Also try to fetch videonode page for direct m3u8 fallback
-                // Run async: let loadExtractor handle, but also generic regex fallback below will catch
+                playerUrls.add(src)
             }
         }
 
-        // 1b) Direct iframes (paling sering di IDLIX muvipro) - mirip DutaMovie.kt:182
+        // 1b) Direct iframes (paling sering di IDLIX muvipro)
         document.select("div.gmr-embed-responsive iframe, div.player-embed iframe, iframe[data-litespeed-src], iframe[src]").forEach { iframe ->
             val src = iframe.getIframeAttr()?.let { httpsify(it) }?.takeIf { it.isNotBlank() } ?: return@forEach
-            // Filter youtube/trailer
             if (src.contains("youtube.com") || src.contains("youtu.be")) return@forEach
-            // Skip if already handled above (videonode main-player)
             if (iframe.attr("id") == "main-player") return@forEach
-            found = true
-            loadExtractor(src, referer, subtitleCallback) { link -> callback(link) }
+            playerUrls.add(src)
+        }
+
+        // Proses player: packed-JS (morencius/vidhide dkk) ditangani khusus,
+        // sisanya serahkan ke loadExtractor generik.
+        for (playerUrl in playerUrls) {
+            val ok = if (PackedPlayerExtractor.handles(playerUrl)) {
+                PackedPlayerExtractor.extract(playerUrl, referer, callback)
+            } else {
+                runCatching {
+                    loadExtractor(playerUrl, referer, subtitleCallback) { callback(it) }
+                    true
+                }.getOrDefault(false)
+            }
+            if (ok) found = true
         }
 
         // 2) muvipro_player_content via AJAX (DutaMovie.kt:188 & KlikxxiProvider.kt:317)
@@ -476,16 +498,21 @@ class IDLIXProvider : MainAPI() {
             }
         }
 
-        // 3) Generic fallback: cari semua link embed lain (short.icu, hxfile, etc)
+        // 3) Generic fallback: cari semua link embed lain (short.icu, hxfile, morencius, etc)
         if (!found) {
             val pageHtml = document.html()
-            // Cari pola https://xxx/e/xxx yang sering dipakai IDLIX
+            // Cari pola https://xxx/e/xxx atau /embed/xxx yang sering dipakai IDLIX
             Regex("""https?://[^"'\s<>]+\/(?:e|v|embed)\/[a-zA-Z0-9_-]+""").findAll(pageHtml).forEach { m ->
                 val url = m.value
                 if (url.contains("youtube") || url.contains("facebook")) return@forEach
                 runCatching {
-                    found = true
-                    loadExtractor(url, referer, subtitleCallback) { callback(it) }
+                    val ok = if (PackedPlayerExtractor.handles(url)) {
+                        PackedPlayerExtractor.extract(url, referer, callback)
+                    } else {
+                        loadExtractor(url, referer, subtitleCallback) { callback(it) }
+                        true
+                    }
+                    if (ok) found = true
                 }
             }
         }

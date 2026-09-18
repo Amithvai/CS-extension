@@ -1,4 +1,4 @@
-version = 3
+version = 4
 
 cloudstream {
     description = "IDLIX - Streaming Film, Series & Drama Sub Indo (Multi-domain: IDLIX/LK21/Rebahin)"

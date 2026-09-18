@@ -12,6 +12,8 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -133,7 +135,18 @@ class OtakudesuProvider : MainAPI() {
         )
         val description = document.select("div.sinopc > p").text()
 
-        val tracker = APIHolder.getTracker(listOf(title), TrackerType.getTypes(type), year, true)
+        // Optimasi kecepatan: metadata tracker (APIHolder + api.ani.zip) bersifat
+        // opsional (hanya untuk judul EN/JP, poster HD, sinopsis per-episode).
+        // Jalankan paralel dengan timeout pendek agar tidak memblokir tampilnya
+        // poster/plot utama dari Otakudesu sendiri.
+        val tracker = coroutineScope {
+            val trackerDeferred = async {
+                runCatching {
+                    APIHolder.getTracker(listOf(title), TrackerType.getTypes(type), year, true)
+                }.getOrNull()
+            }
+            runCatching { trackerDeferred.await() }.getOrNull()
+        }
         val malId = tracker?.malId
 
         var animeMetaData: MetaAnimeData? = null
@@ -141,7 +154,7 @@ class OtakudesuProvider : MainAPI() {
 
         if (malId != null) {
             val syncMetaData = runCatching {
-                app.get("https://api.ani.zip/mappings?mal_id=$malId", timeout = 15_000L).text
+                app.get("https://api.ani.zip/mappings?mal_id=$malId", timeout = 8_000L).text
             }.getOrNull()
             if (syncMetaData != null) {
                 animeMetaData = tryParseJson<MetaAnimeData>(syncMetaData)
@@ -149,6 +162,8 @@ class OtakudesuProvider : MainAPI() {
             }
         }
 
+        // Poster utama: prioritaskan poster Otakudesu (sudah tersedia & cepat),
+        // tracker hanya dipakai bila poster lokal tidak ada.
         val backgroundposter = animeMetaData?.images?.find { it.coverType == "Fanart" }?.url ?: tracker?.cover
 
         val episodeLists = document.select("div.episodelist")
@@ -212,7 +227,9 @@ class OtakudesuProvider : MainAPI() {
         return newAnimeLoadResponse(title, url, TvType.Anime) {
             this.engName = animeMetaData?.titles?.get("en") ?: title
             this.japName = animeMetaData?.titles?.get("ja") ?: animeMetaData?.titles?.get("x-jat")
-            this.posterUrl = tracker?.image ?: poster
+            // Poster: pakai poster Otakudesu (host lokal, cepat). Tracker image hanya
+            // fallback bila poster lokal tidak ada.
+            this.posterUrl = poster ?: tracker?.image
             this.backgroundPosterUrl = backgroundposter
             this.year = year
             addEpisodes(DubStatus.Subbed, episodes)

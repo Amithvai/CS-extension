@@ -141,7 +141,7 @@ class OneTouchTV : MainAPI() {
                 result.title ?: "Unknown",
                 "$mainUrl/vod/${result.id}/detail",
                 if (result.type.equals("movie", ignoreCase = true)) TvType.Movie else TvType.TvSeries
-            ) { posterUrl = result.image }
+            ) { posterUrl = result.image?.normalizeImageUrl() }
         }.toNewSearchResponseList()
     }
 
@@ -189,7 +189,9 @@ class OneTouchTV : MainAPI() {
                 list = listOf(HomePageList(
                     name = request.name,
                     list = items.map { item ->
-                        newTvSeriesSearchResponse(item.title ?: "Unknown", "$mainUrl/vod/${item.id}/detail", tvType) { posterUrl = item.image }
+                        newTvSeriesSearchResponse(item.title ?: "Unknown", "$mainUrl/vod/${item.id}/detail", tvType) {
+                            posterUrl = item.image?.normalizeImageUrl()
+                        }
                     },
                     isHorizontalImages = false
                 )),
@@ -199,7 +201,30 @@ class OneTouchTV : MainAPI() {
     }
 
     private fun MediaItem.toSearchResponse(mainUrl: String): SearchResponse =
-        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) { posterUrl = image }
+        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) {
+            posterUrl = image?.normalizeImageUrl()
+        }
+
+    /**
+     * Normalisasi URL gambar agar bisa dimuat cepat:
+     *  - media.themoviedb.org → image.tmdb.org (menghindari 301 redirect)
+     *  - i.mydramalist.com → pakai varian kecil (350px) supaya ringan
+     *  - image-7wk.pages.dev → image-v1.pages.dev (CDN lama sudah mati)
+     */
+    private fun String.normalizeImageUrl(): String {
+        var url = this
+        if (url.contains("media.themoviedb.org")) {
+            url = url.replace("media.themoviedb.org", "image.tmdb.org")
+        }
+        if (url.contains("image-7wk.pages.dev")) {
+            url = url.replace("image-7wk.pages.dev", "image-v1.pages.dev")
+        }
+        // mydramalist: 4f = ukuran penuh, 4c/_4c = medium. Pakai medium agar ringan.
+        if (url.contains("i.mydramalist.com")) {
+            url = url.replace(Regex("_4f(\\.(jpg|jpeg|png|webp))"), "_4c$1")
+        }
+        return url
+    }
 
     override suspend fun load(url: String): LoadResponse {
         val safeUrl = normalizeUrl(url)
@@ -215,8 +240,9 @@ class OneTouchTV : MainAPI() {
         }
         val parser = tryParseJson<LoadData>(decryptedJson) ?: throw ErrorLoadingException("Failed to parse detail data")
         val title = parser.title ?: "Unknown"
-        val poster = parser.image ?: ""
-        val backgroundPoster = parser.poster?.replace("image-7wk.pages.dev", "image-v1.pages.dev")?.takeIf { it.isNotBlank() && it != "null" } ?: poster
+        val poster = parser.image?.normalizeImageUrl() ?: ""
+        val backgroundPoster = parser.poster?.normalizeImageUrl()
+            ?.takeIf { it.isNotBlank() && it != "null" } ?: poster
         val description = parser.description ?: ""
         val year = parser.year?.toIntOrNull()
         val status = when (parser.status) {
@@ -260,7 +286,9 @@ class OneTouchTV : MainAPI() {
     }
 
     private fun OneTouchTVParser.TopMedia.toSearchResponse(): SearchResponse =
-        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) { posterUrl = image }
+        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) {
+            posterUrl = image?.normalizeImageUrl()
+        }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean = coroutineScope {
         val safeData = normalizeUrl(data)
@@ -288,7 +316,12 @@ class OneTouchTV : MainAPI() {
                 callback(newExtractorLink(sourceName, sourceName, url, INFER_TYPE) {
                     this.quality = getQualityFromName(src.quality ?: "")
                     this.referer = "$mainUrl/"
-                    this.headers = src.headers ?: emptyMap()
+                    // CDN OneTouchTV (aapanel.devcorp.me) tidak butuh header khusus,
+                    // tapi kirim UA+Referer agar aman bila CDN berubah kebijakan.
+                    this.headers = (src.headers ?: emptyMap()) + mapOf(
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                        "Referer" to "$mainUrl/"
+                    )
                 })
             }
         }

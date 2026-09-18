@@ -24,8 +24,8 @@ class KisskhProvider : MainAPI() {
     companion object {
         private const val KEY_FETCH_API = "https://script.google.com/macros/s/AKfycbzn8B31PuDxzaMa9_CQ0VGEDasFqfzI5bXvjaIZH4DM8DNq9q6xj1ALvZNz_JT3jF0suA/exec?id="
         private const val SUB_FETCH_API = "https://script.google.com/macros/s/AKfycbyq6hTj0ZhlinYC6xbggtgo166tp6XaDKBCGtnYk8uOfYBUFwwxBui0sGXiu_zIFmA/exec?id="
-        private const val API_TIMEOUT = 30_000L
-        private const val KEY_TIMEOUT = 10_000L
+        private const val API_TIMEOUT = 20_000L
+        private const val KEY_TIMEOUT = 12_000L
         private const val KEY_FETCH_RETRIES = 2
         private const val API_VERSION = "2.8.10"
         private val KEY_CACHE = mutableMapOf<String, String>()
@@ -241,6 +241,9 @@ class KisskhProvider : MainAPI() {
         var lastException: Exception? = null
         repeat(KEY_FETCH_RETRIES) { attempt ->
             try {
+                // Google Script mengembalikan 302 ke googleusercontent.com.
+                // OkHttp di CloudStream follow redirect otomatis, tapi kadang butuh
+                // request kedua; kita coba .text langsung (OkHttp sudah follow-redirect).
                 val key = app.get(apiUrl, timeout = KEY_TIMEOUT).text
                     .let { tryParseJson<Key>(it) }?.key
                 if (!key.isNullOrEmpty()) {
@@ -249,8 +252,9 @@ class KisskhProvider : MainAPI() {
                 }
             } catch (e: Exception) {
                 lastException = e
+                // Retry cepat tanpa delay panjang (Google Script kadang butuh 1 retry)
                 if (attempt < KEY_FETCH_RETRIES - 1) {
-                    delay(1000L * (attempt + 1))
+                    delay(300L)
                 }
             }
         }
@@ -267,25 +271,45 @@ class KisskhProvider : MainAPI() {
     ): Boolean {
         val loadData = tryParseJson<Data>(data) ?: throw ErrorLoadingException("Gagal memuat data")
 
-        val (videoKey, subKey) = coroutineScope {
-            val videoKeyDeferred = async { fetchKey("$KEY_FETCH_API${loadData.epsId}&version=$API_VERSION") }
-            val subKeyDeferred = async { fetchKey("$SUB_FETCH_API${loadData.epsId}&version=$API_VERSION") }
-            videoKeyDeferred.await() to subKeyDeferred.await()
+        // Video key wajib untuk dapat stream. Subtitle key opsional (jangan blokir
+        // pemutaran bila gagal). Fetch videoKey dulu, subKey parallel non-blocking.
+        val videoKey = fetchKey("$KEY_FETCH_API${loadData.epsId}&version=$API_VERSION")
+
+        val subKeyDeferred = coroutineScope {
+            async {
+                runCatching { fetchKey("$SUB_FETCH_API${loadData.epsId}&version=$API_VERSION") }.getOrNull()
+            }
         }
 
-        fetchApiText(
-            "$mainUrl/api/DramaList/Episode/${loadData.epsId}.png?err=false&ts=&time=&kkey=$videoKey",
-            referer = "$mainUrl/Drama/${getTitle(loadData.title ?: "")}/Episode-${loadData.eps}?id=${loadData.id}&ep=${loadData.epsId}&page=0&pageSize=100"
-        ).let { tryParseJson<Sources>(it) }?.let { source ->
+        val episodeUrl = "$mainUrl/api/DramaList/Episode/${loadData.epsId}.png?err=false&ts=&time=&kkey=$videoKey"
+        val episodeReferer = "$mainUrl/Drama/${getTitle(loadData.title ?: "")}/Episode-${loadData.eps}?id=${loadData.id}&ep=${loadData.epsId}&page=0&pageSize=100"
+
+        val sourcesText = runCatching { fetchApiText(episodeUrl, referer = episodeReferer) }.getOrNull()
+        val source = sourcesText?.let { tryParseJson<Sources>(it) }
+
+        var found = false
+        if (source != null) {
             listOf(source.video, source.thirdParty).amap { link ->
                 safeApiCall {
                     if (link?.contains(".m3u8") == true) {
-                        M3u8Helper.generateM3u8(
-                            this.name,
-                            link,
-                            referer = "$mainUrl/",
-                            headers = mapOf("Origin" to mainUrl)
-                        ).forEach(callback)
+                        // HLS langsung: emit M3U8 link (tidak perlu generate playlist manual,
+                        // M3u8Helper hanya untuk multi-quality playlist; master m3u8 sudah cukup)
+                        callback.invoke(
+                            newExtractorLink(
+                                this.name,
+                                this.name,
+                                fixUrl(link),
+                                INFER_TYPE
+                            ) {
+                                this.referer = "$mainUrl/"
+                                this.quality = inferQuality(link)
+                                this.headers = mapOf(
+                                    "Referer" to "$mainUrl/",
+                                    "Origin" to mainUrl
+                                )
+                            }
+                        )
+                        found = true
                     } else if (link?.contains("mp4") == true) {
                         callback.invoke(
                             newExtractorLink(
@@ -298,6 +322,7 @@ class KisskhProvider : MainAPI() {
                                 this.quality = inferQuality(link)
                             }
                         )
+                        found = true
                     } else {
                         loadExtractor(
                             link?.substringBefore("=http") ?: return@safeApiCall,
@@ -310,9 +335,12 @@ class KisskhProvider : MainAPI() {
             }
         }
 
-        processSubtitles(subKey, loadData.epsId, subtitleCallback)
+        // Subtitle opsional — jangan gagalkan pemutaran bila subKey null
+        subKeyDeferred.await()?.let { subKey ->
+            runCatching { processSubtitles(subKey, loadData.epsId, subtitleCallback) }
+        }
 
-        return true
+        return found || source != null
     }
 
     private suspend fun processSubtitles(subKey: String, epsId: Int?, subtitleCallback: (SubtitleFile) -> Unit) {

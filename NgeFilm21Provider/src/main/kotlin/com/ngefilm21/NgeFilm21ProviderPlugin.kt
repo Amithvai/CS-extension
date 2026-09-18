@@ -8,5 +8,8 @@ import android.content.Context
 class Ngefilm21ProviderPlugin: Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Ngefilm21Provider())
+        // Player Abyss (abyssplayer.com) — dipakai server 2
+        registerExtractorAPI(AbyssExtractor())
+        registerExtractorAPI(AbyssPlayerExtractor())
     }
 }

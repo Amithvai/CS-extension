@@ -241,20 +241,38 @@ class Nomat : MainAPI() {
             val safeData = normalizeUrl(data)
             val pageUrl = safeData.ifBlank { mainUrl }
 
-            // First attempt: fetch the embed page directly (nontonhemat.link)
-            val embedDoc = fetchDocument(pageUrl, referer = mainUrl)
-            var hasServers = parseEmbedPage(embedDoc, pageUrl, subtitleCallback, callback)
+            // Halaman detail nomat → cari tombol play (link nontonhemat.link)
+            val detailDoc = fetchDocument(pageUrl, referer = mainUrl)
 
-            // Fallback: if no servers found, look for a play button and follow it
-            if (!hasServers) {
-                val playHref = embedDoc.selectFirst("a:has(.play-btn), a[href*='nontonhemat.link']")?.attr("href")
-                if (!playHref.isNullOrBlank()) {
-                    val playDoc = fetchDocument(fixUrl(playHref), referer = pageUrl)
-                    parseEmbedPage(playDoc, playHref, subtitleCallback, callback)
+            // Kasus 1: halaman yang diminta SUDAH halaman player (punya server-item)
+            var hasServers = parseEmbedPage(detailDoc, pageUrl, subtitleCallback, callback)
+            if (hasServers) return true
+
+            // Kasus 2: follow tombol play ke nontonhemat.link
+            val playHref = detailDoc
+                .selectFirst("a:has(.play-btn), a[href*='nontonhemat.link']")
+                ?.attr("href")
+                ?.let { fixUrl(it) }
+
+            if (!playHref.isNullOrBlank()) {
+                // PENTING: nontonhemat.link menolak request tanpa Referer origin
+                // pemanggil (nomat.shop). Referer URL lengkap halaman juga ditolak
+                // ("Invalid Credentials"), jadi gunakan origin + trailing slash.
+                val originReferer = runCatching {
+                    val u = URI(pageUrl)
+                    "${u.scheme}://${u.host}/"
+                }.getOrNull() ?: "$mainUrl/"
+
+                val playDoc = runCatching {
+                    app.get(playHref, referer = originReferer, timeout = 15_000L).document
+                }.getOrNull()
+
+                if (playDoc != null) {
+                    hasServers = parseEmbedPage(playDoc, playHref, subtitleCallback, callback)
                 }
             }
 
-            true
+            hasServers
         } catch (e: Exception) {
             throw ErrorLoadingException(e.message ?: "Gagal memuat video")
         }
