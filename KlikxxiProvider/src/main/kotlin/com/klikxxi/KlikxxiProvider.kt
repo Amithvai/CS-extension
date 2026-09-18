@@ -7,7 +7,9 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.httpsify
 import com.lagradost.cloudstream3.utils.loadExtractor
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URI
 import java.net.URLEncoder
 
 private val IMAGE_SIZE_REGEX = Regex("-\\d+x\\d+(?=\\.(webp|jpg|jpeg|png))", RegexOption.IGNORE_CASE)
@@ -44,21 +46,50 @@ private fun Element?.getPosterImageUrl(): String? {
 
 class KlikxxiProvider : MainAPI() {
     companion object {
-        private const val SEL_ARTICLE = "article.item, div.gmr-item-modulepost"
+        private const val SEL_ARTICLE = "article.item, div.gmr-item-modulepost, article.item-infinite"
         private const val SEL_TITLE = "h1.entry-title, h2.entry-title, div.mvic-desc h3"
         private const val SEL_POSTER = "figure.pull-left > img, .mvic-thumb img, .poster img, figcaption img[src*='klikxxi']"
         private const val SEL_DESC = "div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p"
-        private const val SEL_RECOMMEND = "article.item.col-md-20, div.gmr-recent-posts-wrapper article"
+        private const val SEL_RECOMMEND = "article.item.col-md-20, article.item-infinite.col-md-20, div.gmr-recent-posts-wrapper article"
         private const val SEL_SEASON_BLOCK = "div.gmr-season-block, .season-block"
-        private const val SEL_EPISODE_LINK = "div.gmr-season-episodes a, .episode-list a"
+        private const val SEL_EPISODE_LINK = "div.gmr-season-episodes a, .episode-list a, .gmr-listseries a"
         private const val SEL_PLAYER_ID = "div#muvipro_player_content_id, input#post_id"
         private const val SEL_TAB_CONTENT = "div.tab-content-ajax, .tab-pane"
         private val QUALITY_CLASS_REGEX = Regex("hd|sd|cam|ts|hdts|hdts2|hdrip|webrip|bluray|brrip|fhd|uhd|4k", RegexOption.IGNORE_CASE)
         private val DIGIT_REGEX = Regex("(\\d+)")
         private val EPISODE_NUM_REGEX = Regex("(?:E(?:p(?:isode)?)?|Episode|Ep\\.?)\\s*(\\d+)", RegexOption.IGNORE_CASE)
+
+        /** Domain mirror KlikXXI, urutan prioritas.
+         * klikxxi.me (lama) sekarang 301 → klikxxi.shop. */
+        private val domains = listOf(
+            "https://klikxxi.shop",
+            "https://klikxxi.me",
+        )
+
+        /** Domain lama/baru untuk normalisasi URL tersimpan */
+        private val KNOWN_HOSTS = listOf("klikxxi.me", "klikxxi.shop", "klikxxi.fit")
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
     }
 
-    override var mainUrl = "https://klikxxi.me"
+    override var mainUrl = domains.first()
     override var name = "KlikXXI"
     override val hasMainPage = true
     override var lang = "id"
@@ -96,13 +127,43 @@ class KlikxxiProvider : MainAPI() {
         }.replace("//", "/")
          .replace(":/", "://")
 
-        val document = runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()
+        val document = fetchDocument(url)
             ?: return newHomePageResponse(request.name, emptyList(), hasNext = false)
 
         val items = document.select(SEL_ARTICLE)
             .mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(request.name, items, hasNext = items.isNotEmpty())
+    }
+
+    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    private suspend fun fetchDocument(url: String): Document? {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, timeout = 15_000L).document }.getOrNull()
+            if (doc != null) {
+                mainUrl = domain
+                return doc
+            }
+            markDead(mirrorHost)
+        }
+        return null
+    }
+
+    /** Normalisasi URL lama (klikxxi.me dll) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
+            return url.replace("https://$host", mainUrl).replace("http://$host", mainUrl)
+        }
+        return url
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
@@ -150,9 +211,7 @@ class KlikxxiProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val document = runCatching {
-            app.get("$mainUrl/?s=$encodedQuery", timeout = 15_000L).document
-        }.getOrNull() ?: return emptyList()
+        val document = fetchDocument("$mainUrl/?s=$encodedQuery") ?: return emptyList()
         return document.select(SEL_ARTICLE)
             .mapNotNull { it.toSearchResult() }
     }
@@ -181,8 +240,9 @@ class KlikxxiProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()
-            ?: return newMovieLoadResponse("Error", url, TvType.Movie, url) {
+        val safeUrl = normalizeUrl(url)
+        val document = fetchDocument(safeUrl)
+            ?: return newMovieLoadResponse("Error", safeUrl, TvType.Movie, safeUrl) {
                 this.plot = "Failed to load page: network error"
             }
 
@@ -226,7 +286,7 @@ class KlikxxiProvider : MainAPI() {
         val tvType = if (episodes.isNotEmpty()) TvType.TvSeries else TvType.Movie
 
         return if (tvType == TvType.TvSeries) {
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.plot = description
                 this.tags = tags
@@ -237,7 +297,7 @@ class KlikxxiProvider : MainAPI() {
                 this.recommendations = recommendations
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 this.posterUrl = poster
                 this.plot = description
                 this.tags = tags
@@ -310,7 +370,8 @@ class KlikxxiProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = runCatching { app.get(data, timeout = 15_000L).document }.getOrNull()
+        val safeData = normalizeUrl(data)
+        val document = fetchDocument(safeData)
             ?: throw ErrorLoadingException("Gagal memuat video")
         
         var postId = document
@@ -353,7 +414,7 @@ class KlikxxiProvider : MainAPI() {
             
             val link = httpsify(iframe)
 
-            loadExtractor(link, data, subtitleCallback) {
+            loadExtractor(link, safeData, subtitleCallback) {
                 foundAny = true
                 callback(it)
             }

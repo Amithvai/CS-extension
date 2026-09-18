@@ -23,15 +23,25 @@ import java.net.URLEncoder
 class IDLIXProvider : MainAPI() {
 
     companion object {
-        /** Daftar domain mirror - urutan prioritas.
-         * CATATAN: tv3/tv4.idlixian.com dihapus (NXDOMAIN per logcat 2026-08-24).
+        /** Daftar domain mirror - urutan prioritas (verifikasi 2026-09-18).
+         * CATATAN:
+         *  - tv3/tv4.idlixian.com dihapus (NXDOMAIN per logcat 2026-08-24).
+         *  - idlixian.com → z2.idlixku.com (Next.js SPA, tidak bisa di-parse HTML).
+         *  - rebahinxxi.shop mati (DNS NXDOMAIN).
+         *  - teamhaupt.org = domain IDLIX baru (muvipro, konten article.item) —
+         *    sebelumnya chain: lk21official.wiki → sabellaphoto.com → teamhaupt.org.
          * Domain mati akan otomatis di-skip via negative cache DEAD_TTL_MS. */
         val domains = listOf(
+            "https://teamhaupt.org",
             "https://lk21official.wiki",
             "https://tv12.lk21official.cc",
-            "https://idlixian.com",
-            "https://idflix.my.id",
-            "https://rebahinxxi.shop"
+        )
+
+        /** Host lama yang perlu dinormalisasi ke domain aktif */
+        private val KNOWN_HOSTS = listOf(
+            "lk21official.wiki", "tv12.lk21official.cc", "idlixian.com",
+            "z2.idlixku.com", "idflix.my.id", "rebahinxxi.shop",
+            "sabellaphoto.com", "asescan.org", "teamhaupt.org"
         )
 
         /** Negative-cache domain yang gagal (DNS/403/timeout): skip selama 10 menit */
@@ -52,6 +62,8 @@ class IDLIXProvider : MainAPI() {
             if (host != null) deadDomains[host] = System.currentTimeMillis()
         }
 
+        private fun hostOf(url: String): String? = runCatching { java.net.URI(url).host }.getOrNull()
+
         private val IMAGE_SIZE_REGEX = Regex("(-\\d+x\\d*)")
         private val EPISODE_NUM_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
         private val SEASON_EP_CLEAN_REGEX = Regex("\\s*(Season|Episode)\\s*.*", RegexOption.IGNORE_CASE)
@@ -70,11 +82,12 @@ class IDLIXProvider : MainAPI() {
         TvType.AsianDrama
     )
 
+    // Path relatif agar tetap valid saat mainUrl berganti mirror.
+    // Path mengikuti struktur muvipro teamhaupt.org (domain IDLIX terbaru).
     override val mainPage = mainPageOf(
-        "latest/page/%d/" to "Terbaru",
-        "populer/page/%d/" to "Populer",
-        "rating/page/%d/" to "Top Rating",
-        "release/page/%d/" to "Rilis Terbaru",
+        "recent/page/%d/" to "Terbaru",
+        "best-rating/page/%d/" to "Top Rating",
+        "new/page/%d/" to "Rilis Terbaru",
         "genre/action/page/%d/" to "Action",
         "genre/adventure/page/%d/" to "Adventure",
         "genre/animation/page/%d/" to "Animation",
@@ -84,9 +97,9 @@ class IDLIXProvider : MainAPI() {
         "genre/fantasy/page/%d/" to "Fantasy",
         "genre/horror/page/%d/" to "Horror",
         "genre/romance/page/%d/" to "Romance",
-        "genre/sci-fi/page/%d/" to "Sci-Fi",
+        "genre/science-fiction/page/%d/" to "Sci-Fi",
         "genre/thriller/page/%d/" to "Thriller",
-        "country/south-korea/page/%d/" to "Korea",
+        "country/korea/page/%d/" to "Korea",
         "country/indonesia/page/%d/" to "Indonesia",
         "country/japan/page/%d/" to "Jepang",
         "country/china/page/%d/" to "China"
@@ -95,15 +108,14 @@ class IDLIXProvider : MainAPI() {
     // Helper: coba fetch dengan fallback domain jika 403/timeout/NXDOMAIN
     // Domain gagal di-mark dead selama 10 menit agar tidak retry storm (logcat: NXDOMAIN spam)
     private suspend fun getDocument(url: String): Document? {
-        val uri = runCatching { URI(url) }.getOrNull()
-        val host = uri?.host
+        val host = hostOf(url)
         if (!isDead(host)) {
             runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()?.let { return it }
             markDead(host)
         }
         // Fallback: ganti host dengan mirror yang masih hidup
         for (domain in domains) {
-            val mirrorHost = runCatching { URI(domain).host }.getOrNull() ?: continue
+            val mirrorHost = hostOf(domain) ?: continue
             if (mirrorHost == host || isDead(mirrorHost)) continue
             val mirrorUrl = url.replace(host ?: "", mirrorHost)
             val doc = runCatching { app.get(mirrorUrl, timeout = 15_000L).document }.getOrNull()
@@ -114,6 +126,15 @@ class IDLIXProvider : MainAPI() {
             markDead(mirrorHost)
         }
         return null
+    }
+
+    /** Normalisasi URL lama (idlixian.com, rebahinxxi.shop dll) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
+            return url.replace("https://$host", mainUrl).replace("http://$host", mainUrl)
+        }
+        return url
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -225,7 +246,8 @@ class IDLIXProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = getDocument(url) ?: return newMovieLoadResponse("Error", url, TvType.Movie, url) {
+        val safeUrl = normalizeUrl(url)
+        val document = getDocument(safeUrl) ?: return newMovieLoadResponse("Error", safeUrl, TvType.Movie, safeUrl) {
             this.plot = "Gagal memuat halaman (semua mirror down)"
         }
 
@@ -269,7 +291,7 @@ class IDLIXProvider : MainAPI() {
             ?: document.selectFirst("span.year, span[itemprop=datePublished]")?.text()?.trim()?.toIntOrNull()
             ?: Regex("\\b(19\\d{2}|20\\d{2})\\b").find(document.text())?.groupValues?.getOrNull(1)?.toIntOrNull()
 
-        val tvType = if (url.contains("/tv/") || url.contains("/series/") || url.contains("/nontondrama") || document.select("div.vid-episodes, div.gmr-listseries, div.episodelist, div#episode-list").isNotEmpty()) TvType.TvSeries else TvType.Movie
+        val tvType = if (safeUrl.contains("/tv/") || safeUrl.contains("/series/") || safeUrl.contains("/nontondrama") || document.select("div.vid-episodes, div.gmr-listseries, div.episodelist, div#episode-list").isNotEmpty()) TvType.TvSeries else TvType.Movie
         val description = schemaDesc
             ?: document.selectFirst("div[itemprop=description] > p, div.desc p.f-desc, div.entry-content > p, div.synopsis p, .mvic-desc p, p:has(strong:contains(Cap Farewell))")
                 ?.text()?.trim()
@@ -283,8 +305,8 @@ class IDLIXProvider : MainAPI() {
         val recommendations = document.select("article.item.col-md-20, div.movies-list article, div.ml-item, div.gallery-grid article").mapNotNull { it.toSearchItem() }.take(12)
 
         return if (tvType == TvType.TvSeries) {
-            val episodes = parseEpisodes(document, url, poster)
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            val episodes = parseEpisodes(document, safeUrl, poster)
+            newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -296,7 +318,7 @@ class IDLIXProvider : MainAPI() {
                 addTrailer(trailer)
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -354,10 +376,11 @@ class IDLIXProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val baseUrl = getBaseUrl(data)
+        val safeData = normalizeUrl(data)
+        val baseUrl = getBaseUrl(safeData)
         val referer = "$baseUrl/"
 
-        val document = getDocument(data) ?: throw ErrorLoadingException("Gagal memuat video (semua mirror down)")
+        val document = getDocument(safeData) ?: throw ErrorLoadingException("Gagal memuat video (semua mirror down)")
 
         var found = false
 

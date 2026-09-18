@@ -13,7 +13,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 
 class MovieboxProvider : MainAPI() {
-    override var mainUrl = "https://moviebox.ph"
+    override var mainUrl = "https://movieboxhd.net"
     private val mainAPIUrl = "https://h5-api.aoneroom.com"
     private val secondAPIUrl = "https://filmboom.top"
     override val instantLinkLoading = true

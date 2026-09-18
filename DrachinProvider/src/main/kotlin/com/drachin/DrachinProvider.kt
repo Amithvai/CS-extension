@@ -44,10 +44,20 @@ class Drachin : MainAPI() {
         private var lastFetchError: String? = null
 
         private val API_MESSAGE_REGEX = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"")
+        private val ERROR_CODE_REGEX = Regex("error code:\\s*(\\d+)")
 
         private fun extractApiMessage(text: String?): String? {
             if (text == null) return null
-            return API_MESSAGE_REGEX.find(text)?.groupValues?.get(1)
+            API_MESSAGE_REGEX.find(text)?.groupValues?.get(1)?.let { return it }
+            // Tangani balasan non-JSON dari gateway (mis. "error code: 502")
+            ERROR_CODE_REGEX.find(text)?.groupValues?.get(1)?.let { code ->
+                return when (code) {
+                    "502", "503", "504" -> "Server API sansekai sedang down ($code). Coba lagi nanti."
+                    "429" -> "API rate-limit (429). Tunggu beberapa saat lalu coba lagi."
+                    else -> "API error ($code)"
+                }
+            }
+            return null
         }
 
         private fun isErrorResponse(text: String): Boolean {

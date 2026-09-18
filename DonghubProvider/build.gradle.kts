@@ -1,4 +1,4 @@
-version = 10
+version = 11
 
 cloudstream {
     description = "Donghub — Streaming Donghua Subtitle Indonesia"
@@ -19,5 +19,5 @@ cloudstream {
         "Cartoon",
     )
 
-    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://donghub.vip&size=%size%"
+    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://donghive.vip&size=%size%"
 }

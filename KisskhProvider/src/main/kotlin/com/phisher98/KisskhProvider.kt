@@ -30,9 +30,38 @@ class KisskhProvider : MainAPI() {
         private const val API_VERSION = "2.8.10"
         private val KEY_CACHE = mutableMapOf<String, String>()
         private val NON_ALPHANUM_REGEX = Regex("[^a-zA-Z0-9]")
+
+        /** Domain mirror Kisskh, urutan prioritas (semua sinkron, verifikasi 2026-09) */
+        private val domains = listOf(
+            "https://kisskh.ovh",
+            "https://kisskh.co",
+            "https://kisskh.do",
+            "https://kisskh.id",
+        )
+
+        private val KNOWN_HOSTS = listOf("kisskh.ovh", "kisskh.co", "kisskh.do", "kisskh.id")
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { java.net.URI(url).host }.getOrNull()
     }
 
-    override var mainUrl = "https://kisskh.ovh"
+    override var mainUrl = domains.first()
     override var name = "Kisskh"
     override val hasMainPage = true
     override val hasDownloadSupport = true
@@ -40,6 +69,41 @@ class KisskhProvider : MainAPI() {
         TvType.AsianDrama,
         TvType.Anime
     )
+
+    /** Fetch teks dengan fallback multi-domain + negative cache */
+    private suspend fun fetchApiText(url: String, referer: String? = null): String {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, referer = referer, timeout = API_TIMEOUT).text }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val text = runCatching { app.get(mirrorUrl, referer = referer, timeout = API_TIMEOUT).text }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            if (text != null) {
+                mainUrl = domain
+                return text
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua domain Kisskh tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
+            return url.replace("https://$host", mainUrl).replace("http://$host", mainUrl)
+        }
+        return url
+    }
 
     override val mainPage = mainPageOf(
         "&sub=0&country=0&status=0&order=2" to "Latest Update",
@@ -53,7 +117,7 @@ class KisskhProvider : MainAPI() {
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
-        val res = app.get("$mainUrl/api/DramaList/List?page=$page${request.data}", timeout = API_TIMEOUT).text
+        val res = fetchApiText("$mainUrl/api/DramaList/List?page=$page${request.data}")
             .let { tryParseJson<Responses>(it) }
         val data = res?.data
         val home = data?.mapNotNull { media -> media.toSearchResponse() }
@@ -83,7 +147,7 @@ class KisskhProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val searchResponse =
-            app.get("$mainUrl/api/DramaList/Search?q=$encodedQuery&type=0", referer = "$mainUrl/", timeout = API_TIMEOUT).text
+            fetchApiText("$mainUrl/api/DramaList/Search?q=$encodedQuery&type=0", referer = "$mainUrl/")
         return tryParseJson<ArrayList<Media>>(searchResponse)?.mapNotNull { media ->
             media.toSearchResponse()
         } ?: throw ErrorLoadingException("Invalid JSON response")
@@ -94,15 +158,15 @@ class KisskhProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val urlParts = url.split("/")
+        val safeUrl = normalizeUrl(url)
+        val urlParts = safeUrl.split("/")
         if (urlParts.size < 2) throw ErrorLoadingException("Invalid URL format")
         val contentId = urlParts.last()
         val titleSlug = urlParts.dropLast(1).lastOrNull() ?: ""
-        val res = app.get(
+        val res = fetchApiText(
             "$mainUrl/api/DramaList/Drama/$contentId?isq=false",
-            referer = "$mainUrl/Drama/$titleSlug?id=$contentId",
-            timeout = API_TIMEOUT
-        ).text.let { tryParseJson<MediaDetail>(it) }
+            referer = "$mainUrl/Drama/$titleSlug?id=$contentId"
+        ).let { tryParseJson<MediaDetail>(it) }
             ?: throw ErrorLoadingException("Invalid JSON response")
 
         val episodes = res.episodes?.map { eps ->
@@ -113,7 +177,7 @@ class KisskhProvider : MainAPI() {
 
         return newTvSeriesLoadResponse(
             res.title ?: return null,
-            url,
+            safeUrl,
             when {
                 res.type == "Movie" -> TvType.Movie
                 res.type == "Anime" -> TvType.Anime
@@ -209,11 +273,10 @@ class KisskhProvider : MainAPI() {
             videoKeyDeferred.await() to subKeyDeferred.await()
         }
 
-        app.get(
+        fetchApiText(
             "$mainUrl/api/DramaList/Episode/${loadData.epsId}.png?err=false&ts=&time=&kkey=$videoKey",
-            referer = "$mainUrl/Drama/${getTitle(loadData.title ?: "")}/Episode-${loadData.eps}?id=${loadData.id}&ep=${loadData.epsId}&page=0&pageSize=100",
-            timeout = API_TIMEOUT
-        ).text.let { tryParseJson<Sources>(it) }?.let { source ->
+            referer = "$mainUrl/Drama/${getTitle(loadData.title ?: "")}/Episode-${loadData.eps}?id=${loadData.id}&ep=${loadData.epsId}&page=0&pageSize=100"
+        ).let { tryParseJson<Sources>(it) }?.let { source ->
             listOf(source.video, source.thirdParty).amap { link ->
                 safeApiCall {
                     if (link?.contains(".m3u8") == true) {
@@ -253,7 +316,7 @@ class KisskhProvider : MainAPI() {
     }
 
     private suspend fun processSubtitles(subKey: String, epsId: Int?, subtitleCallback: (SubtitleFile) -> Unit) {
-        app.get("$mainUrl/api/Sub/$epsId?kkey=$subKey", timeout = API_TIMEOUT).text.let { res ->
+        fetchApiText("$mainUrl/api/Sub/$epsId?kkey=$subKey").let { res ->
             tryParseJson<List<Subtitle>>(res)?.forEach { sub ->
                 val src = sub.src ?: return@forEach
                 subtitleCallback.invoke(

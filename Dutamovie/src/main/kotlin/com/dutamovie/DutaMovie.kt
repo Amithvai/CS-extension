@@ -18,9 +18,38 @@ class DutaMovie : MainAPI() {
         private val PERMALINK_REGEX = Regex("(?i)Permalink to\\s*")
         private val EPISODE_NUM_REGEX = Regex("Episode\\s*(\\d+)")
         private val IMAGE_SIZE_REGEX = Regex("(-\\d*x\\d*)")
+
+        /** Domain mirror Dutamovie21, urutan prioritas.
+         * seoulschool.org (lama) sekarang 301 → algarvebuzz.com. */
+        private val domains = listOf(
+            "https://algarvebuzz.com",
+            "https://seoulschool.org",
+        )
+
+        /** Domain lama/baru untuk normalisasi URL tersimpan */
+        private val KNOWN_HOSTS = listOf("seoulschool.org", "algarvebuzz.com", "dutamovie21.com")
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
     }
 
-    override var mainUrl = "https://seoulschool.org"
+    override var mainUrl = domains.first()
     override var name = "Dutamovie"
     override val hasMainPage = true
     override var lang = "id"
@@ -53,8 +82,38 @@ class DutaMovie : MainAPI() {
         "country/thailand/page/%d/" to "Thailand"
     )
 
+    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    private suspend fun fetchDocument(url: String): Document {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, timeout = 15_000L).document }.getOrNull()?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, timeout = 15_000L).document }.getOrNull()
+            if (doc != null) {
+                mainUrl = domain
+                return doc
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua domain Dutamovie tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama (seoulschool.org dll) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
+            return url.replace("https://$host", mainUrl).replace("http://$host", mainUrl)
+        }
+        return url
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get("$mainUrl/${request.data.format(page)}", timeout = 15_000L).document
+        val document = fetchDocument("$mainUrl/${request.data.format(page)}")
         val items = document.select("article.item").mapNotNull { it.toSearchItem() }
         return newHomePageResponse(request.name, items)
     }
@@ -88,13 +147,13 @@ class DutaMovie : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val document = app.get("$mainUrl?s=$encodedQuery&post_type[]=post&post_type[]=tv", timeout = 15_000L).document
-        return document.select("article.item-infinite").mapNotNull { it.toSearchItem() }
+        val document = fetchDocument("$mainUrl?s=$encodedQuery&post_type[]=post&post_type[]=tv")
+        return document.select("article.item-infinite, article.item").mapNotNull { it.toSearchItem() }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val fetch = app.get(url, timeout = 15_000L)
-        val document = fetch.document
+        val safeUrl = normalizeUrl(url)
+        val document = fetchDocument(safeUrl)
 
         val title = document.selectFirst("h1.entry-title")?.text()
             ?.replace(SEASON_EP_CLEAN_REGEX, "")?.trim()
@@ -105,7 +164,7 @@ class DutaMovie : MainAPI() {
         val tags = document.select("div.gmr-moviedata a").map { it.text() }
         val year = document.select("div.gmr-moviedata strong:contains(Year:) > a")
             .text().trim().toIntOrNull()
-        val tvType = if (url.contains("/tv/")) TvType.TvSeries else TvType.Movie
+        val tvType = if (safeUrl.contains("/tv/")) TvType.TvSeries else TvType.Movie
         val description = document.selectFirst("div[itemprop=description] > p")?.text()?.trim()
         val trailer = document.selectFirst("ul.gmr-player-nav li a.gmr-trailer-popup")?.attr("href")
         val rating = document.selectFirst("div.gmr-meta-rating span[itemprop=ratingValue]")
@@ -117,7 +176,7 @@ class DutaMovie : MainAPI() {
         return if (tvType == TvType.TvSeries) {
             val episodes = parseEpisodes(document, poster)
 
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                 posterUrl = poster
                 this.year = year
                 plot = description
@@ -129,7 +188,7 @@ class DutaMovie : MainAPI() {
                 addTrailer(trailer)
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 posterUrl = poster
                 this.year = year
                 plot = description
@@ -169,15 +228,11 @@ class DutaMovie : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val baseUrl = getBaseUrl(data)
+        val safeData = normalizeUrl(data)
+        val baseUrl = getBaseUrl(safeData)
         val referer = "$baseUrl/"
 
-        val response = try {
-            app.get(data, timeout = 15_000L)
-        } catch (e: Exception) {
-            throw ErrorLoadingException(e.message ?: "Gagal memuat video")
-        }
-        val document = response.document
+        val document = fetchDocument(safeData)
 
         document.select("div.gmr-embed-responsive iframe").forEach { iframe ->
             iframe.getIframeAttr()?.let { src ->
@@ -205,7 +260,7 @@ class DutaMovie : MainAPI() {
         } else {
             val tabs = document.select("ul.muvipro-player-tabs li a")
                 .map { fixUrl(it.attr("href")) }
-                .filter { it != data }
+                .filter { it != safeData }
 
             for (tabUrl in tabs) {
                 try {

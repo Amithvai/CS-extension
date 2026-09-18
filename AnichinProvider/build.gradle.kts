@@ -1,4 +1,4 @@
-version = 8
+version = 9
 
 cloudstream {
     language = "id"
@@ -10,5 +10,5 @@ cloudstream {
         "AnimeMovie",
         "Cartoon",
     )
-    iconUrl = "https://anichin.ro/wp-content/uploads/2026/02/cropped-favicon-anichin-192x192.webp"
+    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://anichin.moe&size=%size%"
 }

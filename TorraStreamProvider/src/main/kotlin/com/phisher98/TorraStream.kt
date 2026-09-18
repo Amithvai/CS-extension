@@ -58,7 +58,12 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
         const val SubtitlesAPI = "https://opensubtitles-v3.strem.io"
         const val AnimetoshoAPI = "https://feed.animetosho.org"
         const val TorrentioAnimeAPI = "https://torrentio.strem.fun/providers=nyaasi,tokyotosho,anidex%7Csort=seeders"
-        const val TorboxAPI= "https://stremio.torbox.app"
+        /** TorBox Stremio addon - URL utama + mirror fallback (format: /{apikey}/stream/...).
+         * Catatan: stremio.torbox.app sempat down/NXDOMAIN; fallback dicoba berurutan. */
+        val TorboxAPI = listOf(
+            "https://stremio.torbox.app",
+            "https://torbox.stremio.app",
+        )
         val TRACKER_LIST_URL = listOf(
             "https://raw.githubusercontent.com/ngosang/trackerslist/refs/heads/master/trackers_best.txt",
             "https://raw.githubusercontent.com/ngosang/trackerslist/refs/heads/master/trackers_best_ip.txt",

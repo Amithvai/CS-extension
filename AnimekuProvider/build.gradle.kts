@@ -1,4 +1,4 @@
-version = 4
+version = 5
 
 cloudstream {
     description = "Animeku — Streaming Anime Subtitle Indonesia"
@@ -12,5 +12,5 @@ cloudstream {
         "OVA",
     )
 
-    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://animeku.tv&size=%size%"
+    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://animeku.site&size=%size%"
 }

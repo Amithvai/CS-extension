@@ -3,7 +3,9 @@ package com.ngefilm21
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -19,7 +21,7 @@ private data class RpmResponse(
 private fun String.cleanSlashes(): String = replace("\\/", "/")
 
 class Ngefilm21Provider : MainAPI() {
-    override var mainUrl = "https://new37.ngefilm.site"
+    override var mainUrl = domains.first()
     override var name = "NgeFilm21"
     override val hasMainPage = true
     override var lang = "id"
@@ -30,6 +32,36 @@ class Ngefilm21Provider : MainAPI() {
         private const val RPM_KEY = "6b69656d7469656e6d75613931316361"
         private const val RPM_IV = "313233343536373839306f6975797472"
         private const val RPM_PLAYER_DOMAIN = "playerngefilm21.rpmlive.online"
+
+        /** Domain mirror NgeFilm21, urutan prioritas.
+         * new37/new38 (lama) sekarang 301 → new39.ngefilm.site. */
+        private val domains = listOf(
+            "https://new39.ngefilm.site",
+            "https://new38.ngefilm.site",
+            "https://new37.ngefilm.site",
+        )
+
+        /** Pola host lama/baru untuk normalisasi URL tersimpan */
+        private val NGEFILM_HOST_REGEX = Regex("""^https?://new\d+\.ngefilm\.site""", RegexOption.IGNORE_CASE)
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
 
         private val REGEX_RESIZE = Regex("""-\d+x\d+""")
         private val REGEX_RPM_ID = Regex("""rpmlive\.online.*?[#&?]id=([a-zA-Z0-9]+)|rpmlive\.online.*?#([a-zA-Z0-9]+)""")
@@ -45,6 +77,37 @@ class Ngefilm21Provider : MainAPI() {
         private val REGEX_KRAKEN_VIDEO = Regex("""src=["'](https:[^"']+/play/video/[^"']+)["']""")
         private val REGEX_EP_NUMBER = Regex("""(\d+)""")
         private val REGEX_NON_HEX = Regex("[^0-9a-fA-F]")
+    }
+
+    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    private suspend fun fetchDocument(url: String, headers: Map<String, String> = emptyMap()): Document {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, headers = headers, timeout = 15_000L).document }.getOrNull()
+                ?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, headers = headers, timeout = 15_000L).document }
+                .getOrNull()
+            if (doc != null) {
+                mainUrl = domain
+                return doc
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua domain NgeFilm21 tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama (new37/new38 dll) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        if (NGEFILM_HOST_REGEX.containsMatchIn(url) && !url.startsWith(mainUrl)) {
+            return NGEFILM_HOST_REGEX.replaceFirst(url, mainUrl)
+        }
+        return url
     }
 
     private fun Element.getImageAttr(): String? {
@@ -89,7 +152,7 @@ class Ngefilm21Provider : MainAPI() {
                     }
 
                     try {
-                        val document = app.get(finalUrl, timeout = 15_000L).document
+                        val document = fetchDocument(finalUrl)
                         val items = document.select("article.item-infinite").mapNotNull { it.toSearchResult() }
                         if (items.isNotEmpty()) HomePageList(title, items) else null
                     } catch (_: Exception) {
@@ -113,12 +176,13 @@ class Ngefilm21Provider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-        return app.get("$mainUrl/?s=$encoded&post_type[]=post&post_type[]=tv", timeout = 15_000L).document
+        return fetchDocument("$mainUrl/?s=$encoded&post_type[]=post&post_type[]=tv")
             .select("article.item-infinite").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val document = app.get(url, timeout = 15_000L).document
+        val safeUrl = normalizeUrl(url)
+        val document = fetchDocument(safeUrl)
         val title = document.selectFirst("h1.entry-title")?.text()?.trim() ?: return null
         val poster = document.selectFirst(".gmr-movie-data figure img")?.getImageAttr()
         val plotText = document.selectFirst("div.entry-content[itemprop='description'] p")?.text()?.trim()
@@ -143,11 +207,11 @@ class Ngefilm21Provider : MainAPI() {
                     this.episode = REGEX_EP_NUMBER.find(it.text())?.groupValues?.get(1)?.toIntOrNull()
                 }
             }
-            return newTvSeriesLoadResponse(title, url, type, episodes) {
+            return newTvSeriesLoadResponse(title, safeUrl, type, episodes) {
                 applyCommonMetadata(poster, plotText, yearText, ratingText, tagsList, actorsList, trailerUrl)
             }
         } else {
-            return newMovieLoadResponse(title, url, type, url) {
+            return newMovieLoadResponse(title, safeUrl, type, safeUrl) {
                 applyCommonMetadata(poster, plotText, yearText, ratingText, tagsList, actorsList, trailerUrl)
             }
         }
@@ -178,15 +242,16 @@ class Ngefilm21Provider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         return try {
-            val document = app.get(data, timeout = 15_000L).document
+            val safeData = normalizeUrl(data)
+            val document = fetchDocument(safeData, headers = mapOf("User-Agent" to UA_BROWSER))
             val playerLinks = document.select(".muvipro-player-tabs a").mapNotNull { it.attr("href") }.toMutableList()
-            if (playerLinks.isEmpty()) playerLinks.add(data)
+            if (playerLinks.isEmpty()) playerLinks.add(safeData)
 
             coroutineScope {
                 playerLinks.distinct().map { playerUrl ->
                     async {
                         try {
-                            val fixedUrl = if (playerUrl.startsWith("http")) playerUrl else "$mainUrl$playerUrl"
+                            val fixedUrl = if (playerUrl.startsWith("http")) normalizeUrl(playerUrl) else "$mainUrl$playerUrl"
                             val pageContent = app.get(fixedUrl, headers = mapOf("User-Agent" to UA_BROWSER), timeout = 15_000L).text
 
                             // RPM — handle first

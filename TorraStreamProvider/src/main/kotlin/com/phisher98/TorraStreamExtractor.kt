@@ -430,7 +430,7 @@ suspend fun invokeAIOStreamsDebian(
 }
 
 suspend fun invokeDebianTorbox(
-    torBoxAPI: String,
+    torBoxAPI: List<String>,
     key: String,
     id: String? = null,
     season: Int? = null,
@@ -438,13 +438,18 @@ suspend fun invokeDebianTorbox(
     callback: (ExtractorLink) -> Unit,
     filtered: (ExtractorLink) -> Unit
 ) {
-    val url = if (season == null) {
-        "$torBoxAPI/$key/stream/movie/$id.json"
+    val path = if (season == null) {
+        "$key/stream/movie/$id.json"
     } else {
-        "$torBoxAPI/$key/stream/series/$id:$season:$episode.json"
+        "$key/stream/series/$id:$season:$episode.json"
     }
 
-    val response = app.get(url, timeout = 10_000).text.let { tryParseJson<TorBoxDebian>(it) } ?: return
+    // Coba tiap mirror TorBox berurutan sampai ada yang merespons JSON valid
+    val response = torBoxAPI.firstNotNullOfOrNull { base ->
+        runCatching {
+            app.get("$base/$path", timeout = 10_000).text.let { tryParseJson<TorBoxDebian>(it) }
+        }.getOrNull()
+    } ?: return
 
     response.streams.forEach { stream ->
 
@@ -624,7 +629,7 @@ suspend fun invokeKnaben(
 
 
 suspend fun invokeTorboxAnimeDebian(
-    mainUrl: String,
+    mainUrls: List<String>,
     key: String,
     type: TvType,
     id: Int? = null,
@@ -632,12 +637,17 @@ suspend fun invokeTorboxAnimeDebian(
     callback: (ExtractorLink) -> Unit,
     filtered: (ExtractorLink) -> Unit
 ) {
-    val url = if (type == TvType.Movie) {
-        "$mainUrl/$key/stream/movie/kitsu:$id.json"
+    val path = if (type == TvType.Movie) {
+        "$key/stream/movie/kitsu:$id.json"
     } else {
-        "$mainUrl/$key/stream/series/kitsu:$id:$episode.json"
+        "$key/stream/series/kitsu:$id:$episode.json"
     }
-    val res = app.get(url, timeout = 10_000).text.let { tryParseJson<DebianRoot>(it) }
+    // Coba tiap mirror TorBox berurutan sampai ada yang merespons JSON valid
+    val res = mainUrls.firstNotNullOfOrNull { base ->
+        runCatching {
+            app.get("$base/$path", timeout = 10_000).text.let { tryParseJson<DebianRoot>(it) }
+        }.getOrNull()
+    }
     res?.streams?.forEach { stream ->
         val fileUrl = stream.url
 

@@ -14,7 +14,6 @@ import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
@@ -29,10 +28,40 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.net.URI
 import java.net.URLEncoder
 
 class OneTouchTV : MainAPI() {
-    override var mainUrl = base64Decode("aHR0cHM6Ly9hcGkzLmRldmNvcnAubWU=")
+    companion object {
+        /** Domain API OneTouchTV (devcorp.me), urutan prioritas.
+         * Semua mirror mengembalikan payload terenkripsi yang sama. */
+        private val apiDomains = listOf(
+            "https://api3.devcorp.me",
+            "https://api2.devcorp.me",
+            "https://api.devcorp.me",
+        )
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
+    }
+
+    override var mainUrl = apiDomains.first()
     override var name = "OneTouchTV"
     override val hasMainPage = true
     override val hasDownloadSupport = true
@@ -49,11 +78,50 @@ class OneTouchTV : MainAPI() {
         "vod/filter?country=taiwanese&page=%d" to "Taiwanese"
     )
 
+    /**
+     * Fetch teks dari API dengan fallback multi-domain + negative cache.
+     * URL yang masuk harus memakai mainUrl saat ini.
+     */
+    private suspend fun fetchApiText(url: String): String {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, referer = "$mainUrl/", timeout = 15_000L).text }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+            markDead(host)
+        }
+        for (domain in apiDomains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val text = runCatching { app.get(mirrorUrl, referer = "$domain/", timeout = 15_000L).text }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            if (text != null) {
+                mainUrl = domain
+                return text
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua API OneTouchTV tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        val oldHost = apiDomains.firstOrNull { hostOf(it) == host }
+        if (oldHost != null && !url.startsWith(mainUrl)) {
+            return url.replace(oldHost, mainUrl)
+        }
+        return url
+    }
+
     override suspend fun search(query: String, page: Int): SearchResponseList? {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val url = "$mainUrl/vod/search?page=$page&keyword=$encodedQuery"
         val responseText = try {
-            app.get(url, referer = "$mainUrl/", timeout = 15_000L).text
+            fetchApiText(url)
         } catch (e: Exception) {
             throw ErrorLoadingException("Failed to fetch search data: ${e.message}")
         }
@@ -80,7 +148,7 @@ class OneTouchTV : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = "$mainUrl/${request.data.format(page)}"
         val rawResponse = try {
-            app.get(url, timeout = 15_000L).text
+            fetchApiText(url)
         } catch (e: Exception) {
             throw ErrorLoadingException("Failed to fetch ${request.name}: ${e.message}")
         }
@@ -134,8 +202,9 @@ class OneTouchTV : MainAPI() {
         newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) { posterUrl = image }
 
     override suspend fun load(url: String): LoadResponse {
+        val safeUrl = normalizeUrl(url)
         val rawResponse = try {
-            app.get(url, timeout = 15_000L).text
+            fetchApiText(safeUrl)
         } catch (e: Exception) {
             throw ErrorLoadingException("Failed to fetch details: ${e.message}")
         }
@@ -163,7 +232,7 @@ class OneTouchTV : MainAPI() {
             newEpisode("$mainUrl/vod/$identifier/episode/$playId") { name = "Episode ${ep.episode ?: "?"}" }
         }
         val recommendation = fetchRecommendations()
-        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes.reversed()) {
+        return newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes.reversed()) {
             this.backgroundPosterUrl = backgroundPoster
             this.posterUrl = poster
             this.plot = description
@@ -177,7 +246,7 @@ class OneTouchTV : MainAPI() {
 
     private suspend fun fetchRecommendations(): List<SearchResponse> {
         return try {
-            val rawTopResponse = app.get("$mainUrl/vod/top", timeout = 15_000L).text
+            val rawTopResponse = fetchApiText("$mainUrl/vod/top")
             val topJson = decryptString(rawTopResponse)
             val topParser = tryParseJson<OneTouchTVParser>(topJson) ?: return emptyList()
             buildList {
@@ -194,8 +263,9 @@ class OneTouchTV : MainAPI() {
         newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) { posterUrl = image }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean = coroutineScope {
+        val safeData = normalizeUrl(data)
         val rawResponse = try {
-            app.get(data, timeout = 15_000L).text
+            fetchApiText(safeData)
         } catch (e: Exception) {
             throw ErrorLoadingException("Failed to fetch episode data: ${e.message}")
         }

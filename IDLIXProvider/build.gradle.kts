@@ -1,4 +1,4 @@
-version = 1
+version = 3
 
 cloudstream {
     description = "IDLIX - Streaming Film, Series & Drama Sub Indo (Multi-domain: IDLIX/LK21/Rebahin)"
@@ -11,4 +11,5 @@ cloudstream {
         "Anime",
         "AsianDrama",
     )
+    iconUrl = "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://teamhaupt.org&size=%size%"
 }

@@ -6,12 +6,52 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.mvvm.logError
+import java.net.URI
 import java.net.URLEncoder
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class Nomat : MainAPI() {
 
-    override var mainUrl = "https://nomat.asia"
+    companion object {
+        private val POSTER_URL_REGEX = Regex("url\\('(.*?)'\\)")
+        private val EPISODE_TEXT_REGEX = Regex("Eps?.?\\s*(\\d+)", RegexOption.IGNORE_CASE)
+        private val EPISODE_PATH_REGEX = Regex("/episode-(\\d+)")
+        private val EPISODE_LABEL_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
+        private val DIGITS_ONLY_REGEX = Regex("^\\s*(\\d+)\\s*$")
+        private val SEASON_PATH_REGEX = Regex("/season-(\\d+)/")
+
+        /** Domain mirror Nomat, urutan prioritas.
+         * nomat.asia (lama) sekarang 301 → nomat.shop. */
+        private val domains = listOf(
+            "https://nomat.shop",
+            "https://nomat.asia",
+        )
+
+        /** Domain lama/baru untuk normalisasi URL tersimpan */
+        private val KNOWN_HOSTS = listOf("nomat.asia", "nomat.shop")
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
+    }
+
+    override var mainUrl = domains.first()
     override var name = "Nomat"
     override val hasMainPage = true
     override var lang = "id"
@@ -22,15 +62,6 @@ class Nomat : MainAPI() {
                 TvType.Anime,
                 TvType.AsianDrama
             )
-
-    companion object {
-        private val POSTER_URL_REGEX = Regex("url\\('(.*?)'\\)")
-        private val EPISODE_TEXT_REGEX = Regex("Eps?.?\\s*(\\d+)", RegexOption.IGNORE_CASE)
-        private val EPISODE_PATH_REGEX = Regex("/episode-(\\d+)")
-        private val EPISODE_LABEL_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
-        private val DIGITS_ONLY_REGEX = Regex("^\\s*(\\d+)\\s*$")
-        private val SEASON_PATH_REGEX = Regex("/season-(\\d+)/")
-    }
 
     override val mainPage = mainPageOf(
         "slug/film-terbaru/%d/" to "Terbaru",
@@ -48,7 +79,7 @@ class Nomat : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            val document = app.get("$mainUrl/${request.data.format(page)}", timeout = 15_000L).document
+            val document = fetchDocument("$mainUrl/${request.data.format(page)}")
             val items = document.select("a:has(.item-content)").mapNotNull { it.parseItem() }
             newHomePageResponse(request.name, items)
         } catch (e: Exception) {
@@ -57,10 +88,40 @@ class Nomat : MainAPI() {
         }
     }
 
+    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    private suspend fun fetchDocument(url: String, referer: String? = null): Document {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, referer = referer, timeout = 15_000L).document }.getOrNull()?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, referer = referer, timeout = 15_000L).document }.getOrNull()
+            if (doc != null) {
+                mainUrl = domain
+                return doc
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua domain Nomat tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama (nomat.asia) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        val host = hostOf(url) ?: return url
+        if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
+            return url.replace("https://$host", mainUrl).replace("http://$host", mainUrl)
+        }
+        return url
+    }
+
     override suspend fun search(query: String): List<SearchResponse> {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val document = app.get("$mainUrl/search/$encodedQuery/", timeout = 15_000L).document
+            val document = fetchDocument("$mainUrl/search/$encodedQuery/")
             document.select("a:has(.item-content)").mapNotNull { it.parseItem() }
         } catch (e: Exception) {
             logError(e)
@@ -99,7 +160,8 @@ class Nomat : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         return try {
-            val document = app.get(url, timeout = 15_000L).document
+            val safeUrl = normalizeUrl(url)
+            val document = fetchDocument(safeUrl)
             val title = document.selectFirst("div.video-title h1")?.text()
                 ?.substringBefore("Season")
                 ?.substringBefore("Episode")
@@ -120,7 +182,7 @@ class Nomat : MainAPI() {
             val actors = document.select("div.video-actor a").map { it.text() }
             val recommendations = document.select("a:has(.item-content)").take(15).mapNotNull { it.parseItem() }
 
-            val isSeries = url.contains("/serial-tv/") || document.select("div.video-episodes a").isNotEmpty()
+            val isSeries = safeUrl.contains("/serial-tv/") || document.select("div.video-episodes a").isNotEmpty()
 
             if (isSeries) {
                 val episodes = document.select("div.video-episodes a").map { eps ->
@@ -139,7 +201,7 @@ class Nomat : MainAPI() {
                     }
                 }
 
-                newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                     this.posterUrl = poster
                     this.year = year
                     this.plot = description
@@ -152,7 +214,7 @@ class Nomat : MainAPI() {
             } else {
                 val playUrl = document.selectFirst("a:has(.play-btn), a[href*='nontonhemat.link'], [data-play], a[href*='player'], a[href*='watch'], a[href*='stream']")?.attr("href")
 
-                newMovieLoadResponse(title, url, TvType.Movie, playUrl ?: url) {
+                newMovieLoadResponse(title, safeUrl, TvType.Movie, playUrl ?: safeUrl) {
                     this.posterUrl = poster
                     this.year = year
                     this.plot = description
@@ -165,7 +227,7 @@ class Nomat : MainAPI() {
             }
         } catch (e: Exception) {
             logError(e)
-            newMovieLoadResponse("", url, TvType.Movie, url) {}
+            newMovieLoadResponse("", normalizeUrl(url), TvType.Movie, normalizeUrl(url)) {}
         }
     }
 
@@ -176,17 +238,18 @@ class Nomat : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         return try {
-            val pageUrl = data.ifBlank { mainUrl }
+            val safeData = normalizeUrl(data)
+            val pageUrl = safeData.ifBlank { mainUrl }
 
             // First attempt: fetch the embed page directly (nontonhemat.link)
-            val embedDoc = app.get(pageUrl, referer = mainUrl, timeout = 30_000L).document
+            val embedDoc = fetchDocument(pageUrl, referer = mainUrl)
             var hasServers = parseEmbedPage(embedDoc, pageUrl, subtitleCallback, callback)
 
             // Fallback: if no servers found, look for a play button and follow it
             if (!hasServers) {
                 val playHref = embedDoc.selectFirst("a:has(.play-btn), a[href*='nontonhemat.link']")?.attr("href")
                 if (!playHref.isNullOrBlank()) {
-                    val playDoc = app.get(playHref, referer = pageUrl, timeout = 30_000L).document
+                    val playDoc = fetchDocument(fixUrl(playHref), referer = pageUrl)
                     parseEmbedPage(playDoc, playHref, subtitleCallback, callback)
                 }
             }

@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 cloudstream {
     description = "Drachin - Streaming Drama Pendek Sub Indo (SekaiDrama)"

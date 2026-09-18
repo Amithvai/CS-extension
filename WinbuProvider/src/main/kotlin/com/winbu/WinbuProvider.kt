@@ -9,7 +9,7 @@ import org.jsoup.nodes.Element
 import java.net.URLEncoder
 
 class WinbuProvider : MainAPI() {
-    override var mainUrl = "https://winbu.net"
+    override var mainUrl = "https://winbu.org"
     override var name = "Winbu"
     override val hasMainPage = true
     override var lang = "id"
@@ -24,10 +24,14 @@ class WinbuProvider : MainAPI() {
         private val YEAR_REGEX = Regex("\\((\\d{4})\\)")
         private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]*src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val BROKEN_IFRAME = Regex("""(?:mega\.nz/embed/|vidhidepro\.com/v/?$|about:blank)""", RegexOption.IGNORE_CASE)
-        private val BLOCKED_HOST = Regex("""https?://winbu\.org""")
 
-        fun String.toMain(): String = BLOCKED_HOST.replace(this, mainUrlOf)
-        private val mainUrlOf = "https://winbu.net"
+        /** Domain lama winbu.net (sekarang 301 → winbu.org).
+         * Dulu di-normalisasi ke winbu.net karena Cloudflare blok poster winbu.org,
+         * sekarang winbu.org sudah normal sehingga dijadikan domain utama. */
+        private val OLD_HOST = Regex("""https?://winbu\.net""", RegexOption.IGNORE_CASE)
+        private val mainUrlOf = "https://winbu.org"
+
+        fun String.toMain(): String = OLD_HOST.replace(this, mainUrlOf)
     }
 
     override val mainPage = mainPageOf(

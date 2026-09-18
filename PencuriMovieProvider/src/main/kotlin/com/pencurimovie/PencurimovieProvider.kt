@@ -12,7 +12,7 @@ import kotlinx.coroutines.CancellationException
 
 
 class PencurimovieProvider : MainAPI() {
-    override var mainUrl = "https://ww99.pencurimovie.bond"
+    override var mainUrl = "https://ww44.pencurimovie.baby"
     override var name = "PencuriMovie"
     override val hasMainPage = true
     override var lang = "id"
@@ -24,6 +24,65 @@ class PencurimovieProvider : MainAPI() {
         private val DURATION_REGEX = Regex("(\\d+)")
         private val SEASON_REGEX = Regex("Season\\s*(\\d+)")
         private val EPISODE_REGEX = Regex("Episode\\s*(\\d+)")
+
+        /** Domain mirror PencuriMovie, urutan prioritas.
+         * ww99.pencurimovie.bond (lama) mati → ww44.pencurimovie.baby. */
+        private val domains = listOf(
+            "https://ww44.pencurimovie.baby",
+            "https://ww43.pencurimovie.baby",
+            "https://ww42.pencurimovie.baby",
+        )
+
+        /** Pola host lama/baru untuk normalisasi URL tersimpan */
+        private val PENCURI_HOST_REGEX = Regex("""^https?://ww\d+\.pencurimovie\.(?:bond|baby|sbs)""", RegexOption.IGNORE_CASE)
+
+        private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEAD_TTL_MS = 10 * 60 * 1000L
+
+        private fun isDead(host: String?): Boolean {
+            if (host == null) return false
+            val markedAt = deadDomains[host] ?: return false
+            if (System.currentTimeMillis() - markedAt > DEAD_TTL_MS) {
+                deadDomains.remove(host)
+                return false
+            }
+            return true
+        }
+
+        private fun markDead(host: String?) {
+            if (host != null) deadDomains[host] = System.currentTimeMillis()
+        }
+
+        private fun hostOf(url: String): String? = runCatching { java.net.URI(url).host }.getOrNull()
+    }
+
+    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    private suspend fun fetchDocument(url: String): org.jsoup.nodes.Document {
+        val host = hostOf(url)
+        if (!isDead(host)) {
+            runCatching { app.get(url, timeout = 30_000L).document }.getOrNull()?.let { return it }
+            markDead(host)
+        }
+        for (domain in domains) {
+            val mirrorHost = hostOf(domain) ?: continue
+            if (mirrorHost == host || isDead(mirrorHost)) continue
+            val mirrorUrl = url.replace(host ?: "", mirrorHost)
+            val doc = runCatching { app.get(mirrorUrl, timeout = 30_000L).document }.getOrNull()
+            if (doc != null) {
+                mainUrl = domain
+                return doc
+            }
+            markDead(mirrorHost)
+        }
+        throw ErrorLoadingException("Semua domain PencuriMovie tidak dapat diakses")
+    }
+
+    /** Normalisasi URL lama (ww99.pencurimovie.bond dll) ke domain aktif */
+    private fun normalizeUrl(url: String): String {
+        if (PENCURI_HOST_REGEX.containsMatchIn(url) && !url.startsWith(mainUrl)) {
+            return PENCURI_HOST_REGEX.replaceFirst(url, mainUrl)
+        }
+        return url
     }
 
     override val mainPage = mainPageOf(
@@ -41,7 +100,7 @@ class PencurimovieProvider : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get("$mainUrl/${request.data}/page/$page", timeout = 30_000L).document
+        val document = fetchDocument("$mainUrl/${request.data}/page/$page")
         val home = document.select("div.ml-item").mapNotNull { it.toSearchResult() }
         val hasNext = document.selectFirst("a.next, a.page-numbers.next:not(.dots)") != null
         return newHomePageResponse(
@@ -63,7 +122,7 @@ class PencurimovieProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val document = app.get("${mainUrl}?s=$encodedQuery", timeout = 30_000L).document
+        val document = fetchDocument("${mainUrl}?s=$encodedQuery")
         return document.select("div.ml-item").mapNotNull { it.toSearchResult() }
     }
 
@@ -71,7 +130,8 @@ class PencurimovieProvider : MainAPI() {
         doc.select("div.mvic-info p").filter { it.text().startsWith(key) }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, timeout = 30_000L).document
+        val safeUrl = normalizeUrl(url)
+        val document = fetchDocument(safeUrl)
         val title = document.selectFirst("div.mvic-desc h3")?.text()?.trim()
             ?.substringBefore("(")?.trim() ?: ""
         val poster = document.select("meta[property=og:image]").attr("content")
@@ -108,7 +168,7 @@ class PencurimovieProvider : MainAPI() {
                 }
             }
 
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.plot = description
                 this.tags = genre
@@ -120,7 +180,7 @@ class PencurimovieProvider : MainAPI() {
                 if (rating != null) addScore(rating.toString(), 10)
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, safeUrl, TvType.Movie, safeUrl) {
                 this.posterUrl = poster
                 this.plot = description
                 this.tags = genre
@@ -141,7 +201,8 @@ class PencurimovieProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         return try {
-            val document = app.get(data, timeout = 30_000L).document
+            val safeData = normalizeUrl(data)
+            val document = fetchDocument(safeData)
 
             document.select("track[kind=subtitles]").forEach { track ->
                 val src = track.attr("src")
