@@ -52,7 +52,13 @@ class AnichinProvider : MainAPI() {
             "anichin.site", "anichin.stream"
         )
 
-        /** Header untuk load gambar (hotlink protection) */
+        /**
+         * Header untuk load gambar langsung dari host Anichin.
+         * CATATAN: anichin.moe menolak (403) request tanpa UA sama sekali, dan
+         * juga menolak UA default OkHttp milik CloudStream. Karena itu gambar
+         * dialihkan lewat proxy Jetpack Photon (lihat toProxiedPoster);
+         * header ini hanya dipakai sebagai jalur alternatif bila proxy mati.
+         */
         private val POSTER_HEADERS = mapOf(
             "Referer" to "https://anichin.moe/",
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -114,13 +120,99 @@ class AnichinProvider : MainAPI() {
     }
 
     private fun Element.getImageAttr(): String? {
-        // Utamakan srcset (resolusi lebih baik), lalu data-src (lazy), fallback src
-        return when {
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ").takeIf { it.isNotBlank() }
-            hasAttr("data-src") -> attr("abs:data-src").takeIf { it.isNotBlank() }
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src").takeIf { it.isNotBlank() }
-            else -> attr("abs:src").takeIf { it.isNotBlank() }
+        // Ambil src mentah (bisa relatif) — prioritas data-src > src.
+        // Atribut "abs:" tidak bisa diandalkan karena base URI dokumen tidak
+        // selalu di-set CloudStream saat parsing, jadi di-resolve manual.
+        val raw = when {
+            hasAttr("data-src") -> attr("data-src")
+            hasAttr("data-lazy-src") -> attr("data-lazy-src")
+            hasAttr("srcset") -> attr("srcset").substringBefore(" ").trim()
+            else -> attr("src")
         }
+        return absolutize(raw)
+    }
+
+    /** Resolve URL gambar relatif (mis. "/wp-content/...") menjadi absolut */
+    private fun absolutize(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty() || value.startsWith("data:")) return null
+        return when {
+            value.startsWith("http://") || value.startsWith("https://") -> value
+            value.startsWith("//") -> "https:$value"
+            value.startsWith("/") -> "$mainUrl$value"
+            else -> "$mainUrl/$value"
+        }
+    }
+
+    /**
+     * Alihkan URL gambar Anichin lewat proxy gambar publik.
+     *
+     * Kenapa WAJIB pakai proxy:
+     *  - anichin.moe dilindungi Cloudflare dan MEMBLOKIR User-Agent default
+     *    OkHttp milik CloudStream (mis. "okhttp/4.12.0") dengan HTTP 403.
+     *    Hanya UA browser yang lolos — dan CloudStream memuat poster memakai
+     *    OkHttp internal sehingga header POSTER_HEADERS tidak selalu dipakai.
+     *  - CloudStream tidak punya API untuk memaksa header pada image loader.
+     *
+     * Solusi: proxy publik yang meneruskan request dengan UA server-side
+     * sendiri. i0.wp.com (Jetpack Photon) bahkan dipakai Anichin sebagai CDN
+     * resmi di halaman mereka, jadi paling cocok. wsrv.nl dipakai sebagai
+     * cadangan bila Photon sedang cold-cache (kadang balas 404 sementara).
+     *
+     * PENTING: host gambar TIDAK boleh dinormalisasi ke mainUrl. Setiap mirror
+     * menyimpan file di host-nya masing-masing — memaksa path anichin.id ke
+     * anichin.moe menghasilkan 301/400 (sudah diverifikasi). Jadi pakai host
+     * asli dari URL gambar apa adanya.
+     *
+     * Hanya gambar dari host Anichin yang diproksikan; host lain (mis. TMDB)
+     * dibiarkan apa adanya.
+     */
+    private fun toProxiedPoster(url: String?): String? {
+        val value = url?.takeIf { it.isNotBlank() } ?: return null
+        val host = hostOf(value) ?: return value
+        if (host !in KNOWN_HOSTS) return value
+        // Pakai host asli gambar (jangan normalizeUrl) agar path tetap valid.
+        val withoutScheme = value.removePrefix("https://").removePrefix("http://")
+        return "https://i0.wp.com/$withoutScheme"
+    }
+
+    /**
+     * Varian cadangan: proxy wsrv.nl (images.weserv.nl).
+     * Dipakai bila poster Photon gagal dimuat di sisi pemutar.
+     * Format: https://wsrv.nl/?url=<url-encoded>
+     */
+    private fun toWsrvPoster(url: String?): String? {
+        val value = url?.takeIf { it.isNotBlank() } ?: return null
+        val host = hostOf(value) ?: return value
+        if (host !in KNOWN_HOSTS) return value
+        return "https://wsrv.nl/?url=${URLEncoder.encode(value, "UTF-8")}"
+    }
+
+    /**
+     * Pilih URL poster final: Photon dulu, wsrv.nl bila Photon sedang bermasalah.
+     *
+     * Photon kadang cold-cache → 404 sementara, jadi kita probe HEAD/GET ringan
+     * sekali (timeout pendek). Kalau probe gagal, otomatis pakai wsrv.nl yang
+     * tidak punya masalah cold-cache. Bila keduanya gagal, tetap kembalikan
+     * Photon supaya ada kesempatan dirender (fallback terakhir).
+     */
+    private suspend fun resolvePoster(originalUrl: String?): String? {
+        val original = originalUrl?.takeIf { it.isNotBlank() } ?: return null
+        val host = hostOf(original) ?: return original
+        if (host !in KNOWN_HOSTS) return original
+
+        val photon = toProxiedPoster(original) ?: return original
+        val wsrv = toWsrvPoster(original)
+
+        val photonOk = runCatching {
+            app.get(photon, timeout = 6_000L).isSuccessful
+        }.getOrDefault(false)
+        if (photonOk) return photon
+
+        val wsrvOk = wsrv != null && runCatching {
+            app.get(wsrv, timeout = 6_000L).isSuccessful
+        }.getOrDefault(false)
+        return if (wsrvOk) wsrv else photon
     }
 
     private fun getStatus(status: String?): ShowStatus? {
@@ -140,18 +232,20 @@ class AnichinProvider : MainAPI() {
 
     private fun Element.toSearchResult(): AnimeSearchResponse? {
         val anchor = selectFirst(".bsx > a, h2.entry-title a, .tt a") ?: return null
-        val href = anchor.attr("abs:href").let { if (it.isBlank()) anchor.attr("href") else it }
+        val href = anchor.attr("href").ifBlank { anchor.attr("abs:href") }
         val title = anchor.attr("title").ifBlank {
             selectFirst("h2[itemprop=headline], .tt h2, .tt")?.text()?.trim().orEmpty()
         }
         if (title.isBlank() || href.isBlank()) return null
 
-        val poster = selectFirst("img")?.getImageAttr()
+        val poster = toProxiedPoster(selectFirst("img")?.getImageAttr())
         val episode = selectFirst(".epx")?.text()?.replace(NON_DIGIT_REGEX, "")?.toIntOrNull()
         val type = getType(selectFirst(".typez")?.text())
 
         return newAnimeSearchResponse(title, fixUrl(href), type) {
             posterUrl = poster
+            // Proxy Photon tidak butuh header; header tetap dipasang untuk
+            // jaga-jaga bila suatu saat proxy dinonaktifkan.
             posterHeaders = POSTER_HEADERS
             addSub(episode)
         }
@@ -181,7 +275,15 @@ class AnichinProvider : MainAPI() {
         val document = fetchDocument(safeUrl)
         val title = document.selectFirst(".entry-title, h1.entry-title, .post-title h1, [itemprop*=name] h1")?.text()?.trim()
             ?: throw ErrorLoadingException("Title not found")
-        val poster = document.selectFirst(".thumb img, .bigcontent .thumb img")?.getImageAttr()
+        val poster = resolvePoster(
+            document.selectFirst(".thumb img, .bigcontent .thumb img")?.getImageAttr()
+                ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+        )
+        // Banner/background halaman detail: pakai poster yang sama bila tidak ada
+        // gambar khusus (theme themesia tidak menyediakan fanart terpisah).
+        val backgroundPoster = resolvePoster(
+            document.selectFirst("meta[property=og:image]")?.attr("content")
+        ) ?: poster
         val description = document.selectFirst(".entry-content[itemprop=description]")?.text()?.trim()
             ?: document.selectFirst(".desc")?.text()?.trim()
         val tags = document.select(".genxed a").map { it.text() }
@@ -211,6 +313,7 @@ class AnichinProvider : MainAPI() {
         return newAnimeLoadResponse(title, safeUrl, TvType.Anime) {
             posterUrl = poster
             posterHeaders = POSTER_HEADERS
+            backgroundPosterUrl = backgroundPoster
             plot = description
             this.tags = tags
             this.year = year
