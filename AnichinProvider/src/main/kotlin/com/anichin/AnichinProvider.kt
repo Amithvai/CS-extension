@@ -35,18 +35,24 @@ class AnichinProvider : MainAPI() {
 
         /**
          * Path katalog per domain — struktur tiap mirror berbeda:
+         *  - anichin.id  (theme animestream): /anime/?status=...&order=update&page=N
+         *    (status lowercase juga valid; query page di posisi mana pun tetap jalan)
          *  - anichin.moe (theme themesia lama): /ongoing/page/N/, /completed/page/N/
-         *  - anichin.id  (theme themesia baru): /anime/?status=Ongoing&order=update&page=N
+         *
+         * Urutan query mengikuti persis link menu situs supaya paginasi
+         * (?page=N&status=...) di-generate dengan format yang sama.
          */
         private val ONGOING_PATHS = listOf(
+            "anime/?status=ongoing&page=%d",
             "anime/?status=Ongoing&type=&order=update&page=%d",
             "ongoing/page/%d/",
         )
         private val COMPLETED_PATHS = listOf(
+            "anime/?status=completed&page=%d",
             "anime/?status=Completed&type=&order=update&page=%d",
             "completed/page/%d/",
         )
-        private val LIST_PATHS = listOf(
+        private val LATEST_PATHS = listOf(
             "anime/?status=&type=&order=update&page=%d",
             "seri/?page=%d&status=&type=&order=",
         )
@@ -104,9 +110,9 @@ class AnichinProvider : MainAPI() {
     // Path diisi per-request lewat mainPageData (lihat getMainPage) karena
     // tiap mirror memakai struktur path berbeda. Nilai di bawah hanya penanda.
     override val mainPage = mainPageOf(
+        "LATEST" to "Latest",
         "ONGOING" to "Ongoing",
         "COMPLETED" to "Completed",
-        "LIST" to "Donghua List",
     )
 
     /**
@@ -306,7 +312,7 @@ class AnichinProvider : MainAPI() {
         val candidates = when (request.data) {
             "ONGOING" -> ONGOING_PATHS
             "COMPLETED" -> COMPLETED_PATHS
-            else -> LIST_PATHS
+            else -> LATEST_PATHS
         }
 
         for (pathTemplate in candidates) {
@@ -314,9 +320,15 @@ class AnichinProvider : MainAPI() {
             val document = runCatching { fetchDocument("$mainUrl/$path") }.getOrNull() ?: continue
             val results = document.select(".listupd article").mapNotNull { it.toSearchResult() }
             if (results.isNotEmpty()) {
+                // Deteksi halaman berikutnya dari blok .hpage (theme animestream).
+                // Link next selalu berformat "?page=<N+1>..." — kalau tidak ada
+                // berarti ini halaman terakhir (mis. Completed yang cuma 1 halaman).
+                val nextPage = page + 1
+                val hasNext = document.select(".hpage a[href], .pagination a[href]")
+                    .any { it.attr("href").contains("page=$nextPage") }
                 return newHomePageResponse(
                     HomePageList(request.name, results),
-                    hasNext = true
+                    hasNext = hasNext
                 )
             }
         }

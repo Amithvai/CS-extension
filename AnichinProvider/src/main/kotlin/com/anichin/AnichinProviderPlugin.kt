@@ -8,5 +8,15 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class AnichinProviderPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(AnichinProvider())
+
+        // Extractor khusus provider Anichin.
+        // Sebelumnya class-class ini ADA tapi TIDAK PERNAH diregistrasi,
+        // sehingga loadExtractor() jatuh ke extractor core:
+        //  - Dailymotion core  -> video tanpa suara (audio track terpisah)
+        //  - Odnoklassniki core -> gagal total (parser "videos" sudah usang)
+        registerExtractorAPI(Dailymotion())
+        registerExtractorAPI(Geodailymotion())
+        registerExtractorAPI(OkRuSSL())
+        registerExtractorAPI(OkRuHTTP())
     }
 }
