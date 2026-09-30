@@ -33,6 +33,7 @@ class MovieboxProvider : MainAPI() {
         "997144265920760504" to "Popular Movie",
         "5283462032510044280" to "Latest Indonesian Drama",
         "6528093688173053896" to "Trending Indonesian Movies",
+        "8170622407217234072" to "Vivamax Movies",
         "4380734070238626200" to "K-Drama",
         "7736026911486755336" to "Western TV",
         "8624142774394406504" to "Most Popular C-Drama",
