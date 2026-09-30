@@ -182,10 +182,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://movieboxhd.net&size=%size%",
-    "fileHash": "sha256-3a949fccf16f3d173c3a55acb03e6fb6d8096908b24957f39f96bf01b738059e",
+    "fileHash": "sha256-3ea01a93cafd9d48d8fdf13e76e0ad0b8b1522f696d431dd0d5181f825c23e97",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 42000,
+    "fileSize": 42048,
     "status": 1,
     "language": "id",
     "authors": [
@@ -198,7 +198,7 @@
       "Anime",
       "AsianDrama"
     ],
-    "version": 10,
+    "version": 11,
     "internalName": "MovieboxProvider",
     "description": "MovieBox \u2014 Streaming Movie Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/MovieboxProvider.cs3",
