@@ -56,10 +56,19 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
         private const val Cinemeta = BuildConfig.CINEMETA_URL
         const val ThePirateBayApi = "https://thepiratebay-plus.strem.fun"
         const val SubtitlesAPI = "https://opensubtitles-v3.strem.io"
-        const val AnimetoshoAPI = "https://feed.animetosho.org"
+        // Animetosho memindahkan seluruh API/feed (RSS2, Torznab, JSON, dsb) ke domain
+        // baru feed.animetosho.xyz. feed.animetosho.org sudah NXDOMAIN.
+        // Ref: https://animetosho.net/news/28
+        const val AnimetoshoAPI = "https://feed.animetosho.xyz"
         const val TorrentioAnimeAPI = "https://torrentio.strem.fun/providers=nyaasi,tokyotosho,anidex%7Csort=seeders"
         /** TorBox Stremio addon - URL utama + mirror fallback (format: /{apikey}/stream/...).
-         * Catatan: stremio.torbox.app sempat down/NXDOMAIN; fallback dicoba berurutan. */
+         * CATATAN (verifikasi 2026): stremio.torbox.app DAN torbox.stremio.app sekarang
+         * NXDOMAIN — TorBox tidak lagi menyediakan Stremio addon resmi, dan addon
+         * pihak ketiga lama sudah hilang. Tidak ada pengganti drop-in dengan format
+         * /{apikey}/stream/... yang sama.
+         * invokeDebianTorbox() memakai firstNotNullOfOrNull sehingga entri mati akan
+         * di-skip otomatis (source TorBox cukup tidak menghasilkan hasil sampai ada
+         * endpoint baru). Ganti entry di bawah bila menemukan addon TorBox yang live. */
         val TorboxAPI = listOf(
             "https://stremio.torbox.app",
             "https://torbox.stremio.app",

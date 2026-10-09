@@ -81,12 +81,16 @@ open class Dingtezuni : ExtractorApi() {
 
 class Movearnpre : Dingtezuni() {
     override var name = "Movearnpre"
-    override var mainUrl = "https://movearnpre.com"
+
+    // movearnpre.com sudah NXDOMAIN (mati permanen) → host Earnvids-family yang hidup.
+    override var mainUrl = "https://earnvids.xyz"
 }
 
 class Mivalyo : Dingtezuni() {
     override var name = "Earnvids"
-    override var mainUrl = "https://mivalyo.com"
+
+    // mivalyo.com sudah NXDOMAIN (mati permanen) → host utama Earnvids yang hidup.
+    override var mainUrl = "https://earnvids.com"
 }
 
 class Ryderjet : Dingtezuni() {

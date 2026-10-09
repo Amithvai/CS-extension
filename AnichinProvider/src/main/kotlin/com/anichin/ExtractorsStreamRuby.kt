@@ -51,7 +51,10 @@ open class StreamRuby : ExtractorApi() {
 
 class svanila : StreamRuby() {
     override var name = "svanila"
-    override var mainUrl = "https://streamruby.net"
+
+    // streamruby.net sudah NXDOMAIN (mati permanen). svilla.com adalah mirror
+    // hidup dari layanan StreamRuby yang sama (endpoint POST /dl op=embed).
+    override var mainUrl = "https://svilla.com"
 }
 
 class svilla : StreamRuby() {
