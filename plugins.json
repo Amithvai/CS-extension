@@ -1,10 +1,10 @@
 [
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://anichin.moe&size=%size%",
-    "fileHash": "sha256-98466b4d83c74f3b7c6129a1ad464c063f01778e0cc9fc6b5f790700c6ab3b65",
+    "fileHash": "sha256-e50038157d29494caf68501177cd342d6d1af9bb2d6a8aa2a33879b6fa2ef2cb",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 53418,
+    "fileSize": 53430,
     "status": 1,
     "language": "id",
     "authors": [
@@ -67,10 +67,10 @@
     "name": "DonghubProvider"
   },
   {
-    "fileHash": "sha256-42abfe67156dcf64ae85cedff884bec3d40af8cc3df128682a95ed3bf09598a6",
+    "fileHash": "sha256-49c4366ef7258d69757edc0934f1f43725c5ff768a9c4530076c1d21e8849d31",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 44759,
+    "fileSize": 44775,
     "status": 1,
     "language": "id",
     "authors": [
@@ -227,7 +227,7 @@
     "name": "NgeFilm21Provider"
   },
   {
-    "fileHash": "sha256-30951f161d8d4547ce7ef66e58f238a0d7c97367c0e17ad0fe229e8fe445d2f6",
+    "fileHash": "sha256-5b8f7bee37f403e05b39bb67e047ba47c9370ed45a9c296737dfcf5fe1d4d9b2",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 28003,
@@ -315,10 +315,10 @@
   },
   {
     "iconUrl": "https://torrentio.strem.fun/images/logo_v1.png",
-    "fileHash": "sha256-65d1a989ca3e9b631c1b317dcfab3a1e70c2d845583fd5530fbffd9bf5bf802c",
+    "fileHash": "sha256-1cad603cb7f812f544c73bf955e8515fd4e75aeb82675688aa5257eab0ba8e59",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 211131,
+    "fileSize": 211188,
     "status": 1,
     "language": "en",
     "authors": [
