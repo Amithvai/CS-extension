@@ -67,9 +67,9 @@ class DonghubProvider : MainAPI() {
 
     // Path relatif agar tetap valid saat mainUrl berganti mirror
     override val mainPage = mainPageOf(
-        "anime/?order=update" to "Latest Releases",
-        "anime/?status=ongoing&order=update" to "Series Ongoing",
-        "anime/?status=completed&order=update" to "Series Completed",
+        "anime/?status=&type=&order=latest" to "Latest Releases",
+        "anime/?status=ongoing&sub=&order=latest" to "Series Ongoing",
+        "anime/?status=completed&type=&order=latest" to "Series Completed",
         "anime/?type=movie&order=update" to "Movie"
     )
 
