@@ -146,17 +146,18 @@ open class Dailymotion : ExtractorApi() {
             found = true
         }
 
-        // Fallback: kalau master tidak punya variant sama sekali, kirim master
-        // apa adanya (masih lebih baik daripada tidak ada link).
-        if (!found) {
-            val link = newExtractorLink(this.name, this.name, masterUrl, ExtractorLinkType.M3U8) {
+        // Tambahan: master playlist utuh (ABR + audio via EXT-X-MEDIA native HLS).
+        // Berguna bila jalur audioTracks/MergingMediaSource rusak pada build app tertentu.
+        runCatching {
+            val masterLink = newExtractorLink(this.name, "${this.name} (Auto)", masterUrl, ExtractorLinkType.M3U8) {
                 this.referer = embedUrl
             }
             if (anyAudio != null) {
-                link.audioTracks = audioByGroup.values.toList()
+                masterLink.audioTracks = audioByGroup.values.toList()
             }
-            callback(link)
+            callback(masterLink)
         }
+
     }
 
     /** Subtitle dari metadata JSON: {"data":{"id-auto":{"label":"...","urls":["...srt"]}}} */
