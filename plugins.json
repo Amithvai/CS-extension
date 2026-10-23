@@ -45,10 +45,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://donghive.vip&size=%size%",
-    "fileHash": "sha256-3bef74e4f9dd2ed0bae8b29df83573cfb1f5eb158afc5100a0e9aa7fe9d631b1",
+    "fileHash": "sha256-b1bae0c9b7c1f9f15b73309c30f2b95f334957f8021c42b3e6e746f75fdc175d",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 44836,
+    "fileSize": 44953,
     "status": 1,
     "language": "id",
     "authors": [
@@ -60,7 +60,7 @@
       "AnimeMovie",
       "Cartoon"
     ],
-    "version": 14,
+    "version": 15,
     "internalName": "DonghubProvider",
     "description": "Donghub \u2014 Streaming Donghua Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/DonghubProvider.cs3",
