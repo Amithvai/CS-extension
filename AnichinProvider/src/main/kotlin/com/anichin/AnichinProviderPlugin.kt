@@ -18,5 +18,26 @@ class AnichinProviderPlugin : Plugin() {
         registerExtractorAPI(Geodailymotion())
         registerExtractorAPI(OkRuSSL())
         registerExtractorAPI(OkRuHTTP())
+
+        // PERUBAHAN 2026-10-23: mirror option anichin.moe kini memuat server
+        // baru → extractor lama yang tidak pernah diregistrasi kini aktif,
+        // plus extractor baru untuk host baru:
+        //  - player.nunadrama.sbs  -> wrapper geo.dailymotion.com
+        //  - playmogo.com          -> DoodStream family
+        //  - player.abyssplayer.com-> player Abyss (AES-CTR, port dari NgeFilm21)
+        //  - rumble.com/embed      -> HLS playlist (format JSON halaman baru)
+        registerExtractorAPI(Rumble())
+        registerExtractorAPI(DoodAnichin())
+        registerExtractorAPI(NunaDrama())
+        registerExtractorAPI(AbyssPlayerAnichin())
+
+        // Family StreamRuby & VidGuard: belum muncul di mirror saat ini,
+        // tapi diset lama di provider ini — aktifkan saja bila muncul kembali.
+        registerExtractorAPI(StreamRuby())
+        registerExtractorAPI(svanila())
+        registerExtractorAPI(svilla())
+        registerExtractorAPI(Vidguardto1())
+        registerExtractorAPI(Vidguardto2())
+        registerExtractorAPI(Vidguardto3())
     }
 }
