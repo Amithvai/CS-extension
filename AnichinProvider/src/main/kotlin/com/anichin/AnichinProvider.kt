@@ -211,16 +211,16 @@ class AnichinProvider : MainAPI() {
      * Alihkan URL gambar Anichin lewat proxy gambar publik.
      *
      * Kenapa WAJIB pakai proxy:
-     *  - anichin.moe dilindungi Cloudflare dan MEMBLOKIR User-Agent default
-     *    OkHttp milik CloudStream (mis. "okhttp/4.12.0") dengan HTTP 403.
-     *    Hanya UA browser yang lolos — dan CloudStream memuat poster memakai
-     *    OkHttp internal sehingga header POSTER_HEADERS tidak selalu dipakai.
-     *  - CloudStream tidak punya API untuk memaksa header pada image loader.
+     *  - host Anichin MEMBLOKIR UA default OkHttp milik CloudStream (403),
+     *    dan CloudStream tidak punya API untuk memaksa header pada image loader.
      *
-     * Solusi: proxy publik yang meneruskan request dengan UA server-side
-     * sendiri. i0.wp.com (Jetpack Photon) bahkan dipakai Anichin sebagai CDN
-     * resmi di halaman mereka, jadi paling cocok. wsrv.nl dipakai sebagai
-     * cadangan bila Photon sedang cold-cache (kadang balas 404 sementara).
+     * PERUBAHAN 2026-10-23 (poster tidak muncul di halaman detail):
+     *  - i0.wp.com (Photon) bertele-tele untuk gambar anichin.moe: sering balas
+     *    400 "parameters not valid" walau gambarnya hidup (cold-cache / origin
+     *      block yang tidak konsisten). Poster catalog yang pakai photon polos
+     *    jadi kerap tidak muncul 1 dari 2 kali.
+     *  - Jadi proxy UTAMA sekarang wsrv.nl (images.weserv.nl) — stabil 200
+     *    untuk semua gambar yang dites. Photon tinggal cadangan.
      *
      * PENTING: host gambar TIDAK boleh dinormalisasi ke mainUrl. Setiap mirror
      * menyimpan file di host-nya masing-masing — memaksa path anichin.id ke
@@ -235,47 +235,46 @@ class AnichinProvider : MainAPI() {
         val host = hostOf(value) ?: return value
         if (host !in KNOWN_HOSTS) return value
         // Pakai host asli gambar (jangan normalizeUrl) agar path tetap valid.
+        return "https://wsrv.nl/?url=${URLEncoder.encode(value, "UTF-8")}"
+    }
+
+    /**
+     * Varian cadangan: proxy Jetpack Photon (i0.wp.com).
+     * Dipakai bila wsrv.nl sedang bermasalah.
+     * Format: https://i0.wp.com/<host>/<path>
+     */
+    private fun toPhotonPoster(url: String?): String? {
+        val value = url?.takeIf { it.isNotBlank() } ?: return null
+        val host = hostOf(value) ?: return value
+        if (host !in KNOWN_HOSTS) return value
         val withoutScheme = value.removePrefix("https://").removePrefix("http://")
         return "https://i0.wp.com/$withoutScheme"
     }
 
     /**
-     * Varian cadangan: proxy wsrv.nl (images.weserv.nl).
-     * Dipakai bila poster Photon gagal dimuat di sisi pemutar.
-     * Format: https://wsrv.nl/?url=<url-encoded>
-     */
-    private fun toWsrvPoster(url: String?): String? {
-        val value = url?.takeIf { it.isNotBlank() } ?: return null
-        val host = hostOf(value) ?: return value
-        if (host !in KNOWN_HOSTS) return value
-        return "https://wsrv.nl/?url=${URLEncoder.encode(value, "UTF-8")}"
-    }
-
-    /**
-     * Pilih URL poster final: Photon dulu, wsrv.nl bila Photon sedang bermasalah.
+     * Pilih URL poster final: wsrv.nl dulu, Photon bila wsrv sedang bermasalah.
      *
-     * Photon kadang cold-cache → 404 sementara, jadi kita probe HEAD/GET ringan
-     * sekali (timeout pendek). Kalau probe gagal, otomatis pakai wsrv.nl yang
-     * tidak punya masalah cold-cache. Bila keduanya gagal, tetap kembalikan
-     * Photon supaya ada kesempatan dirender (fallback terakhir).
+     * Kedua proxy bisa lambat/404 sesaat, jadi masing-masing di-probe HEAD/GET
+     * ringan (timeout pendek) sebelum dipakai. Bila keduanya gagal, tetap
+     * kembalikan wsrv supaya ada kesempatan dirender (fallback terakhir).
      */
     private suspend fun resolvePoster(originalUrl: String?): String? {
         val original = originalUrl?.takeIf { it.isNotBlank() } ?: return null
         val host = hostOf(original) ?: return original
         if (host !in KNOWN_HOSTS) return original
 
-        val photon = toProxiedPoster(original) ?: return original
-        val wsrv = toWsrvPoster(original)
+        val wsrv = toProxiedPoster(original) ?: return original
+        val photon = toPhotonPoster(original)
 
-        val photonOk = runCatching {
-            app.get(photon, timeout = 6_000L).isSuccessful
-        }.getOrDefault(false)
-        if (photonOk) return photon
-
-        val wsrvOk = wsrv != null && runCatching {
+        val wsrvOk = runCatching {
             app.get(wsrv, timeout = 6_000L).isSuccessful
         }.getOrDefault(false)
-        return if (wsrvOk) wsrv else photon
+        if (wsrvOk) return wsrv
+
+        val photonOk = photon != null && runCatching {
+            app.get(photon, timeout = 6_000L).isSuccessful
+        }.getOrDefault(false)
+        return if (photonOk) photon else wsrv
     }
 
     private fun getStatus(status: String?): ShowStatus? {
@@ -366,9 +365,12 @@ class AnichinProvider : MainAPI() {
                 ?: document.selectFirst("meta[property=og:image]")?.attr("content")
         )
         // Banner/background halaman detail: pakai poster yang sama bila tidak ada
-        // gambar khusus (theme themesia tidak menyediakan fanart terpisah).
+        // gambar khusus (theme animestream tidak menyediakan fanart terpisah).
+        // PERUBAHAN 2026-10-23: og:image anichin.moe sekarang path RELATIVE
+        // ("/wp-content/...") — wajib di-absolutize, kalau tidak poster/banner
+        // halaman detail tidak akan muncul.
         val backgroundPoster = resolvePoster(
-            document.selectFirst("meta[property=og:image]")?.attr("content")
+            document.selectFirst("meta[property=og:image]")?.attr("content")?.let { absolutize(it) }
         ) ?: poster
         val description = document.selectFirst(".entry-content[itemprop=description]")?.text()?.trim()
             ?: document.selectFirst(".desc")?.text()?.trim()
