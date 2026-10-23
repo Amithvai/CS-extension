@@ -67,10 +67,10 @@ class DonghubProvider : MainAPI() {
 
     // Path relatif agar tetap valid saat mainUrl berganti mirror
     override val mainPage = mainPageOf(
-        "anime/?status=&type=&order=latest" to "Latest Releases",
-        "anime/?status=ongoing&sub=&order=latest" to "Series Ongoing",
+        "anime/?status=&order=update" to "Latest Releases",
+        "anime/?status=ongoing&type=&sub=&order=latest" to "Series Ongoing",
         "anime/?status=completed&type=&order=latest" to "Series Completed",
-        "anime/?type=movie&order=update" to "Movie"
+        "anime/?status=&type=movie&order=latest" to "Movie"
     )
 
     private suspend fun fetchDocument(url: String): Document {
