@@ -20,24 +20,32 @@ class AnichinProvider : MainAPI() {
         /**
          * Domain Anichin, urutan prioritas.
          *
-         * PERUBAHAN 2026-09-19:
-         * anichin.moe sekarang di-hard-block Cloudflare ("Cf-Mitigated: challenge")
-         * untuk SEMUA user-agent — termasuk browser. CloudStream tidak bisa
-         * menyelesaikan JS challenge, jadi anichin.moe tidak dapat dipakai lagi.
-         * anichin.care / anichin.site / anichin.club hanya landing page (tanpa
-         * konten). anichin.id adalah satu-satunya mirror yang masih menyajikan
-         * katalog penuh, jadi dijadikan domain utama.
+         * PERUBAHAN 2026-10-23:
+         * anichin.moe (situs utama, dibuka lewat landing page anichin.care)
+         * sudah TIDAK lagi memblokir semua UA — sekarang hanya memblokir UA
+         * non-browser (termasuk "okhttp/..." default OkHttp CloudStream) dengan
+         * HTTP 403. Dengan UA browser, katalog / halaman / iframe / mirror
+         * option semuanya ditembal HTTP 200.
+         *
+         * Konsekuensinya:
+         *  - Setiap request ke host Anichin WAJIB menyertakan header UA browser
+         *    (lihat SITE_HEADERS; dipakai di fetchDocument & loadAnichinPlayer).
+         *  - anichin.moe kembali jadi domain utama; anichin.id tetap disimpan
+         *    sebagai mirror fallback (tema animestream yang sama).
          */
         private val domains = listOf(
-            "https://anichin.id",
             "https://anichin.moe",
+            "https://anichin.id",
         )
 
         /**
          * Path katalog per domain — struktur tiap mirror berbeda:
-         *  - anichin.id  (theme animestream): /anime/?status=...&order=update&page=N
+         *  - anichin.moe & anichin.id (theme animestream, sama):
+         *    /anime/?status=...&order=update&page=N
          *    (status lowercase juga valid; query page di posisi mana pun tetap jalan)
-         *  - anichin.moe (theme themesia lama): /ongoing/page/N/, /completed/page/N/
+         *  - jalur /ongoing/page/N/ & /completed/page/N/ dari theme themesia lama
+         *    dipertahankan sebagai fallback terakhir (sekarang 301 → path baru,
+         *    tapi masih valid bila suatu saat mirror mengganti tema lagi).
          *
          * Urutan query mengikuti persis link menu situs supaya paginasi
          * (?page=N&status=...) di-generate dengan format yang sama.
@@ -83,6 +91,10 @@ class AnichinProvider : MainAPI() {
             "anichin.site", "anichin.club", "anichin.stream"
         )
 
+        /** UA dan header wajib untuk host Anichin — tanpa UA browser → HTTP 403 */
+        private val SITE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        private val SITE_HEADERS = mapOf("User-Agent" to SITE_UA)
+
         /**
          * Header untuk load gambar langsung dari host Anichin.
          * CATATAN: host Anichin menolak (403) request tanpa UA dan juga menolak
@@ -91,8 +103,8 @@ class AnichinProvider : MainAPI() {
          * sebagai jalur alternatif bila proxy mati.
          */
         private val POSTER_HEADERS = mapOf(
-            "Referer" to "https://anichin.id/",
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            "Referer" to "https://anichin.moe/",
+            "User-Agent" to SITE_UA
         )
     }
 
@@ -127,7 +139,7 @@ class AnichinProvider : MainAPI() {
     private suspend fun fetchDocument(url: String, referer: String? = null): Document {
         val host = hostOf(url)
         if (!isDead(host)) {
-            runCatching { app.get(url, referer = referer, timeout = 15_000L).document }.getOrNull()
+            runCatching { app.get(url, headers = SITE_HEADERS, referer = referer, timeout = 15_000L).document }.getOrNull()
                 ?.let { return it }
             markDead(host)
         }
@@ -135,7 +147,7 @@ class AnichinProvider : MainAPI() {
             val mirrorHost = hostOf(domain) ?: continue
             if (mirrorHost == host || isDead(mirrorHost)) continue
             val mirrorUrl = replaceHost(url, mirrorHost) ?: continue
-            val doc = runCatching { app.get(mirrorUrl, referer = referer, timeout = 15_000L).document }
+            val doc = runCatching { app.get(mirrorUrl, headers = SITE_HEADERS, referer = referer, timeout = 15_000L).document }
                 .getOrNull()
             if (doc != null) {
                 mainUrl = domain
@@ -157,10 +169,10 @@ class AnichinProvider : MainAPI() {
      * Normalisasi URL lama ke domain aktif — HANYA untuk keperluan navigasi
      * halaman (load/loadLinks), bukan untuk gambar (lihat toProxiedPoster).
      *
-     * PENTING: hanya host yang ada di [KNOWN_HOSTS] yang diganti, dan hanya
-     * bila target domain memang aktif. Karena anichin.moe sekarang diblokir
-     * Cloudflare, URL anichin.moe justru dipetakan ke mainUrl (anichin.id).
-     */
+         * PENTING: hanya host yang ada di [KNOWN_HOSTS] yang diganti, dan hanya
+         * bila target domain memang aktif. URL mirror lama dipetakan ke mainUrl
+         * (anichin.moe) supaya halaman yang sama tetap terbuka di host aktif.
+         */
     private fun normalizeUrl(url: String): String {
         val host = hostOf(url) ?: return url
         if (host in KNOWN_HOSTS && !url.startsWith(mainUrl)) {
@@ -497,7 +509,7 @@ class AnichinProvider : MainAPI() {
             ?.takeIf { it.isNotBlank() }
 
         val doc = runCatching {
-            app.get(url, referer = "$mainUrl/", timeout = 15_000L).document
+            app.get(url, headers = SITE_HEADERS, referer = "$mainUrl/", timeout = 15_000L).document
         }.getOrNull()
 
         val iframeSrc = doc?.selectFirst("iframe[src]")?.attr("src")
