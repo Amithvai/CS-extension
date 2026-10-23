@@ -65,9 +65,9 @@ class AnimekuProvider : MainAPI() {
 
     // Path relatif agar tetap valid saat mainUrl berganti mirror
     override val mainPage = mainPageOf(
-        "anime/?type=&order=update" to "Latest Update",
-        "anime/?status=ongoing&type=&order=update" to "Ongoing",
-        "anime/?status=completed&sub=&order=popular" to "Completed",
+        "anime/?status=ongoing&order=latest" to "OnGoing",
+        "anime/?status=completed&order=latest" to "Completed",
+        "anime/?status=&type=&sub=&order=popular" to "Popular",
     )
 
     /**
