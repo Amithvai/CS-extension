@@ -53,7 +53,13 @@ class DonghubProvider : MainAPI() {
 
         /** Regex fallback: cari URL player di dalam HTML mentah (untuk player JS-rendered) */
         private val PLAYER_URL_REGEX = Regex(
-            """(?:src|data-src)\s*=\s*["'](https?://[^"']*(?:dailymotion\.com|ok\.ru|turbovid|abyssplayer|streamruby|morencius|rpmvid|archive\.org)[^"']*)["']""",
+            """(?:src|data-src)\s*=\s*["'](https?://[^"']*(?:dailymotion\.com|ok\.ru|turbovid|abyssplayer|streamruby|morencius|rpmvid|archive\.org|play\.d\.tube|odysee\.com)[^"']*)["']""",
+            RegexOption.IGNORE_CASE
+        )
+
+        /** URL yang dikenali sebagai source player agar bisa langsung diekstrak */
+        private val PLAYER_HOST_REGEX = Regex(
+            """(?:dailymotion\.com|ok\.ru|youtube\.com|youtu\.be|rpmvid|turbovid|abyss|streamruby|morencius|archive\.org|play\.d\.tube|odysee\.com)""",
             RegexOption.IGNORE_CASE
         )
     }
@@ -191,6 +197,18 @@ class DonghubProvider : MainAPI() {
         val document = fetchDocument(safeData)
         var foundAny = false
         val referer = safeData
+        val seenUrls = mutableSetOf<String>()
+
+        suspend fun tryExtract(rawLink: String) {
+            val link = rawLink.substringBefore("\\").substringBefore("'")
+            if (link.isBlank() || link.contains("about:blank")) return
+            if (link.contains("mega.nz")) return
+            if (!seenUrls.add(link)) return
+            try {
+                loadExtractor(fixUrl(link), referer, subtitleCallback, callback)
+                foundAny = true
+            } catch (_: Exception) {}
+        }
 
         // 1) Server mirror (base64-encoded iframe di select.mirror / .mobius)
         val serverOptions = document.select(".mobius option, select.mirror option")
@@ -204,28 +222,18 @@ class DonghubProvider : MainAPI() {
                     val doc = Jsoup.parse(decoded)
                     val iframeSrc = doc.select("iframe").attr("src")
                     if (iframeSrc.isBlank()) continue
-
-                    foundAny = true
-                    loadExtractor(fixUrl(iframeSrc), referer, subtitleCallback, callback)
+                    tryExtract(iframeSrc)
                 } catch (_: Exception) {}
             }
         }
 
-        // 2) Iframe langsung dari #embed_holder / .player-embed / semua iframe umum
-        val directIframes = document.select(
-            "div#embed_holder iframe, .player-embed iframe, div.player iframe, " +
-            "div.embed-responsive iframe, div#player iframe, iframe.video-player, " +
-            "iframe[src*=dailymotion], iframe[src*=ok.ru], iframe[src*=archive.org], " +
-            "iframe[src*=youtube], iframe[src*=rpmvid], iframe[src*=turbovid], " +
-            "iframe[src*=abyss], iframe[src*=streamruby], iframe[src*=morencius]"
-        )
+        // 2) Semua iframe, difilter host yang dikenali PLAYER_HOST_REGEX
+        //    agar tahan situs menambah player baru (mega.nz sengaja dilewati: tidak bisa diputar)
+        val directIframes = document.select("iframe[src]").plus(document.select("iframe[data-src]"))
         for (iframe in directIframes) {
             try {
                 val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }
-                if (src.isNotBlank() && !src.contains("about:blank")) {
-                    foundAny = true
-                    loadExtractor(fixUrl(src), referer, subtitleCallback, callback)
-                }
+                if (PLAYER_HOST_REGEX.containsMatchIn(src)) tryExtract(src)
             } catch (_: Exception) {}
         }
 
@@ -233,10 +241,7 @@ class DonghubProvider : MainAPI() {
         if (!foundAny) {
             val html = document.html()
             PLAYER_URL_REGEX.findAll(html).forEach { m ->
-                try {
-                    foundAny = true
-                    loadExtractor(fixUrl(m.groupValues[1]), referer, subtitleCallback, callback)
-                } catch (_: Exception) {}
+                tryExtract(m.groupValues[1])
             }
         }
 

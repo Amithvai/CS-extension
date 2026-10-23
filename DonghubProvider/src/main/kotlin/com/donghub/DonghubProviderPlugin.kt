@@ -10,7 +10,10 @@ class DonghubProviderPlugin: Plugin() {
         registerMainAPI(DonghubProvider())
         registerExtractorAPI(ArchiveOrgExtractor())
         registerExtractorAPI(Dailymotion())
+        registerExtractorAPI(DTube())
         registerExtractorAPI(Geodailymotion())
+        registerExtractorAPI(Morencius())
         registerExtractorAPI(Odnoklassniki())
+        registerExtractorAPI(Odysee())
     }
 }
