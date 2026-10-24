@@ -90,10 +90,10 @@
   },
   {
     "iconUrl": "https://www.google.com/s2/favicons?domain=kisskh.co&sz=%size%",
-    "fileHash": "sha256-81e0860c8d27040377ba9c0deb658df360d162ca022f23f79ae6422a30b0179c",
+    "fileHash": "sha256-cf965747baa9539aee72ef03ccb5c5e6ebc8dfdf045bfd9595730aaea6c69997",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 37596,
+    "fileSize": 37727,
     "status": 1,
     "language": "en",
     "authors": [
