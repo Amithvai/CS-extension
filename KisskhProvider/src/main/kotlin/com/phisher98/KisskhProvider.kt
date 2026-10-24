@@ -31,15 +31,18 @@ class KisskhProvider : MainAPI() {
         private val KEY_CACHE = mutableMapOf<String, String>()
         private val NON_ALPHANUM_REGEX = Regex("[^a-zA-Z0-9]")
 
-        /** Domain mirror Kisskh, urutan prioritas (semua sinkron, verifikasi 2026-09) */
+        /** Domain mirror Kisskh, urutan prioritas (semua sinkron, verifikasi 2026-10).
+         *  kisskh.is = domain resmi baru (pengumuman Facebook KissKH, pindah dari kisskh.nl) */
         private val domains = listOf(
-            "https://kisskh.ovh",
+            "https://kisskh.is",
             "https://kisskh.co",
             "https://kisskh.do",
+            "https://kisskh.ovh",
             "https://kisskh.id",
         )
 
-        private val KNOWN_HOSTS = listOf("kisskh.ovh", "kisskh.co", "kisskh.do", "kisskh.id")
+        private val KNOWN_HOSTS =
+            listOf("kisskh.is", "kisskh.ovh", "kisskh.co", "kisskh.do", "kisskh.id")
 
         private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private const val DEAD_TTL_MS = 10 * 60 * 1000L
@@ -105,11 +108,18 @@ class KisskhProvider : MainAPI() {
         return url
     }
 
+    /** Pemetaan terverifikasi 2026-10: type 0=All 1=Drama/Kshow 2=Movie Asia 3=Anime 4=Hollywood;
+     *  country 0=All 1=China 2=Korea 3=Japan 4=Hong Kong 5=Thailand;
+     *  status 0=All 1=Ongoing 2=Completed; order 1=Popular 2=Latest Update */
     override val mainPage = mainPageOf(
         "&sub=0&country=0&status=0&order=2" to "Latest Update",
-        "&sub=0&country=2&status=0&order=1" to "Top Kdrama",
-        "&sub=0&country=1&status=0&order=1" to "Top Cdrama",
+        "&type=1&sub=0&country=2&status=1&order=2" to "Ongoing Kdrama",
+        "&type=1&sub=0&country=2&status=0&order=1" to "Popular Kdrama",
+        "&type=1&sub=0&country=1&status=0&order=1" to "Popular Cdrama",
+        "&type=1&sub=0&country=3&status=0&order=1" to "J-Drama",
+        "&type=1&sub=0&country=5&status=0&order=1" to "Thai Drama",
         "&type=3&sub=0&country=0&status=0&order=1" to "Anime",
+        "&type=2&sub=0&country=0&status=0&order=1" to "Asian Movies",
         "&type=4&sub=0&country=0&status=0&order=1" to "Hollywood",
     )
 
@@ -128,7 +138,7 @@ class KisskhProvider : MainAPI() {
                 list = home,
                 isHorizontalImages = true
             ),
-            hasNext = data.size >= 20
+            hasNext = data.size >= 10
         )
     }
 
