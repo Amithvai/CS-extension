@@ -66,10 +66,10 @@
     "name": "AnimexinProvider"
   },
   {
-    "fileHash": "sha256-4d7c87709eb31ca78b04385975c7b7bceccc88f787402a2a2bbcfac784f3cd06",
+    "fileHash": "sha256-ad4bfd663daee6428c735fcec7399bfef0de1064d269a5e7c3ee9f5baf990ad7",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 52890,
+    "fileSize": 52555,
     "status": 1,
     "language": "id",
     "authors": [
