@@ -19,15 +19,20 @@ class DutaMovie : MainAPI() {
         private val EPISODE_NUM_REGEX = Regex("Episode\\s*(\\d+)")
         private val IMAGE_SIZE_REGEX = Regex("(-\\d*x\\d*)")
 
-        /** Domain mirror Dutamovie21, urutan prioritas.
-         * seoulschool.org (lama) sekarang 301 → algarvebuzz.com. */
+        /** Domain aktif Dutamovie21. dutamovie21.com kini hanya halaman AMP (SEO),
+         * situs aslinya pindah ke aubergedelavenir.com; algarvebuzz.com/seoulschool.org
+         * sudah tidak lagi menyajikan situs ini. */
         private val domains = listOf(
-            "https://algarvebuzz.com",
-            "https://seoulschool.org",
+            "https://aubergedelavenir.com",
         )
 
         /** Domain lama/baru untuk normalisasi URL tersimpan */
-        private val KNOWN_HOSTS = listOf("seoulschool.org", "algarvebuzz.com", "dutamovie21.com")
+        private val KNOWN_HOSTS = listOf(
+            "seoulschool.org",
+            "algarvebuzz.com",
+            "dutamovie21.com",
+            "aubergedelavenir.com",
+        )
 
         private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private const val DEAD_TTL_MS = 10 * 60 * 1000L
@@ -162,8 +167,9 @@ class DutaMovie : MainAPI() {
         val poster = fixUrlNull(document.selectFirst("figure.pull-left > img")?.getImageAttr())
             ?.fixImageQuality()
         val tags = document.select("div.gmr-moviedata a").map { it.text() }
-        val year = document.select("div.gmr-moviedata strong:contains(Year:) > a")
-            .text().trim().toIntOrNull()
+        val year = document.select(
+            "div.gmr-moviedata strong:containsOwn(Tahun:) > a, div.gmr-moviedata strong:containsOwn(Year:) > a"
+        ).text().trim().toIntOrNull()
         val tvType = if (safeUrl.contains("/tv/")) TvType.TvSeries else TvType.Movie
         val description = document.selectFirst("div[itemprop=description] > p")?.text()?.trim()
         val trailer = document.selectFirst("ul.gmr-player-nav li a.gmr-trailer-popup")?.attr("href")

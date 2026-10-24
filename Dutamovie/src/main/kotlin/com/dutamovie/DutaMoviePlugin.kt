@@ -30,5 +30,6 @@ class DutaMoviePlugin : Plugin() {
         registerExtractorAPI(Embed4meVip())
         registerExtractorAPI(LivePlayerP2P())
         registerExtractorAPI(Gofile())
+        registerExtractorAPI(Abyssplayer())
     }
 }

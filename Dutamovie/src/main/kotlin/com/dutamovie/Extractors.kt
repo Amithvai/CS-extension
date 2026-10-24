@@ -1,5 +1,6 @@
 package com.dutamovie
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
@@ -8,6 +9,11 @@ import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
 import java.net.URI
+import java.security.MessageDigest
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 object ExtractorUtils {
     val m3u8Regex = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
@@ -387,4 +393,125 @@ class Hanerix : StreamHG() {
 class Masukestin : StreamHG() {
     override var name = "Masukestin"
     override var mainUrl = "https://masukestin.com"
+}
+
+/** JSON pada field `datas` (base64) di halaman embed Abyss */
+@JsonIgnoreProperties(ignoreUnknown = true)
+class AbyssDatas(
+    @JsonProperty("slug") val slug: String? = null,
+    @JsonProperty("md5_id") val md5Id: Long? = null,
+    @JsonProperty("user_id") val userId: Long? = null,
+    @JsonProperty("media") val media: String? = null,
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+class AbyssVideo(@JsonProperty("mp4") val mp4: AbyssMp4? = null)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+class AbyssMp4(
+    @JsonProperty("sources") val sources: List<AbyssSource>? = null,
+    @JsonProperty("domains") val domains: List<String>? = null,
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+class AbyssSource(
+    @JsonProperty("label") val label: String? = null,
+    @JsonProperty("res_id") val resId: Int? = null,
+    @JsonProperty("size") val size: Long? = null,
+    @JsonProperty("status") val status: Boolean? = null,
+    @JsonProperty("sub") val sub: String? = null,
+)
+
+/**
+ * Player Abyss (player.abyssplayer.com / abyss.to, platform Hydrax).
+ *
+ * Halaman embed memuat `const datas = "<base64>"`; setelah di-decode (ISO-8859-1)
+ * berisi slug, md5_id, user_id, dan blob `media` terenkripsi AES-256-CTR dengan
+ * key = MD5 hex dari "$user_id:$slug:$md5_id" (IV = 16 byte pertama key).
+ * Hasil dekripsi berupa JSON daftar sumber MP4 per kualitas (label/res_id/size/sub).
+ *
+ * URL putar valid dibangun dengan token permintaan:
+ *   {sub}.{tld}/sora/{size}/{token}
+ * token = base64(base64(AES-CTR("/mp4/{md5_id}/{res_id}/{size}/{size}/0")))
+ * — partSize = ukuran penuh + index 0 membuat server menyajikan file utuh
+ * (mendukung HTTP Range), dengan key = MD5 hex dari *nilai digit* ukuran
+ * (Long, bukan string ASCII). Referer https://abysscdn.com/ wajib (403 tanpa itu).
+ */
+open class Abyssplayer : ExtractorApi() {
+    override val name = "Abyss"
+    override val mainUrl = "https://player.abyssplayer.com"
+    override val requiresReferer = true
+
+    companion object {
+        private val DATAS_REGEX = Regex("const\\s+datas\\s*=\\s*\"([^\"]+)\"")
+        private const val STREAM_REFERER = "https://abysscdn.com/"
+    }
+
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val response = app.get(url, referer = referer ?: "$mainUrl/", timeout = 15_000L)
+        val datas = DATAS_REGEX.find(response.text)?.groupValues?.get(1) ?: return
+
+        val meta = runCatching {
+            tryParseJson<AbyssDatas>(String(Base64.getDecoder().decode(datas), Charsets.ISO_8859_1))
+        }.getOrNull() ?: return
+        val slug = meta.slug ?: return
+        val media = meta.media ?: return
+        val md5Id = meta.md5Id ?: return
+
+        val mediaKey = md5Hex("${meta.userId}:${slug}:${md5Id}".toByteArray(Charsets.UTF_8))
+        val decrypted = runCatching {
+            aesCtr(media.toByteArray(Charsets.ISO_8859_1), mediaKey, encrypt = false)
+        }.getOrNull() ?: return
+        val video = runCatching {
+            tryParseJson<AbyssVideo>(String(decrypted, Charsets.UTF_8))
+        }.getOrNull() ?: return
+
+        val tld = video.mp4?.domains?.firstOrNull()?.substringAfter('.') ?: return
+        video.mp4.sources.orEmpty().forEach { source ->
+            if (source?.status != true) return@forEach
+            val size = source.size ?: return@forEach
+            val resId = source.resId ?: return@forEach
+            val sub = source.sub ?: return@forEach
+
+            val token = doubleBase64(
+                aesCtr("/mp4/$md5Id/$resId/$size/$size/0".toByteArray(), sizeKeyHex(size), encrypt = true)
+            )
+            callback(
+                newExtractorLink(name, name, "https://$sub.$tld/sora/$size/$token") {
+                    this.quality = getQualityFromName(source.label)
+                    this.headers = mapOf("Referer" to STREAM_REFERER)
+                    this.type = ExtractorLinkType.VIDEO
+                }
+            )
+        }
+    }
+
+    private fun md5Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    /** AES-256-CTR, key = string hex 32 karakter, IV = 16 byte pertama key */
+    private fun aesCtr(data: ByteArray, keyHex: String, encrypt: Boolean): ByteArray {
+        val keyBytes = keyHex.toByteArray(Charsets.UTF_8)
+        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
+        cipher.init(
+            if (encrypt) Cipher.ENCRYPT_MODE else Cipher.DECRYPT_MODE,
+            SecretKeySpec(keyBytes, "AES"),
+            IvParameterSpec(keyBytes.copyOfRange(0, 16))
+        )
+        return cipher.doFinal(data)
+    }
+
+    /** Key per-sumber: MD5 hex dari byte nilai-digit ukuran (bukan string ASCII) */
+    private fun sizeKeyHex(size: Long): String =
+        md5Hex(size.toString().map { it.digitToInt().toByte() }.toByteArray())
+
+    private fun doubleBase64(data: ByteArray): String {
+        val first = Base64.getEncoder().encodeToString(data).replace("=", "")
+        return Base64.getEncoder().encodeToString(first.toByteArray(Charsets.ISO_8859_1)).replace("=", "")
+    }
 }
