@@ -68,23 +68,13 @@ class DutaMovie : MainAPI() {
     override val mainPage = mainPageOf(
         "box-office/page/%d/" to "Box Office",
         "serial-tv/page/%d/" to "TV Series",
-        "action/page/%d/" to "Action",
-        "adventure/page/%d/" to "Adventure",
-        "animation/page/%d/" to "Animation",
-        "comedy/page/%d/" to "Comedy",
-        "crime/page/%d/" to "Crime",
-        "drama/page/%d/" to "Drama",
-        "fantasy/page/%d/" to "Fantasy",
-        "horror/page/%d/" to "Horror",
-        "mystery/page/%d/" to "Mystery",
-        "romance/page/%d/" to "Romance",
-        "science-fiction/page/%d/" to "Sci-Fi",
-        "thriller/page/%d/" to "Thriller",
-        "country/china/page/%d/" to "China",
         "country/indonesia/page/%d/" to "Indonesia",
+        "country/japan/page/%d/" to "Japan",
         "country/korea/page/%d/" to "Korea",
-        "country/philippines/page/%d/" to "Philippines",
-        "country/thailand/page/%d/" to "Thailand"
+        "country/china/page/%d/" to "China",
+        "country/philippines/page/%d/" to "Philipines",
+        "country/thailand/page/%d/" to "Thailand",
+        "animasi/page/%d/" to "Animations",
     )
 
     /** Fetch dokumen dengan fallback multi-domain + negative cache */
