@@ -41,9 +41,7 @@ https://raw.githubusercontent.com/Amithvai/CS-extension/master/repo.json
 |:---------|:-----|:----------|
 | **Anichin** | Anime | Streaming Donghua Subtitle Indonesia (multi-domain + Dailymotion player) |
 | **Animeku** | Anime | Streaming Anime Subtitle Indonesia (AnimeKu Studio HLS player) |
-| **Donghub** | Anime | Streaming Donghua Subtitle Indonesia |
 | **DutaMovie** | Movie & TV | Streaming Movie dan TV Series |
-| **IDLIX** | Movie & TV | IDLIX / LK21 / Rebahin (multi-domain, packed-JS player support) |
 | **Kisskh** | Movie & TV | Streaming Movie dan TV Series (multi-domain: ovh/co/do/id) |
 | **KlikXXI** | Movie & TV | Streaming Movie dan TV Series (lazy-load poster fix, 5 server) |
 | **Kuronime** | Anime | Streaming Anime Subtitle Indonesia |
