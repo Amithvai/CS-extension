@@ -44,6 +44,28 @@
     "name": "AnimekuProvider"
   },
   {
+    "iconUrl": "https://animexin.dev/wp-content/uploads/2026/01/cropped-New-Logo-e1768365053967-192x192.png",
+    "fileHash": "sha256-9a3e52e704b685b7b9b464c61f1e268f095184da20c74824a9e4f97950c9122f",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/Amithvai/CS-extension",
+    "fileSize": 48290,
+    "status": 1,
+    "language": "id",
+    "authors": [
+      "Miku"
+    ],
+    "tvTypes": [
+      "Anime",
+      "AnimeMovie",
+      "Cartoon"
+    ],
+    "version": 1,
+    "internalName": "AnimexinProvider",
+    "description": "Animexin - Streaming Donghua Subtitle Indonesia",
+    "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/AnimexinProvider.cs3",
+    "name": "AnimexinProvider"
+  },
+  {
     "fileHash": "sha256-49c4366ef7258d69757edc0934f1f43725c5ff768a9c4530076c1d21e8849d31",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
