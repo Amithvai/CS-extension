@@ -34,11 +34,8 @@ class MovieboxProvider : MainAPI() {
     override val mainPage: List<MainPageData> = mainPageOf(
         "filter:1" to "Movies",
         "filter:2" to "TV Series",
-        "filter:4" to "Midnight 18+",
         "trending:ONEROOM_MOVIE" to "Trending Movies",
-        "trending:ONEROOM_MIDNIGHT" to "Midnight Trending",
         "trending:ONEROOM_ANIMATION" to "Animation",
-        "filter:5" to "Kids",
         "rank:8049887023940913872" to "Box Office",
         "rank:6528093688173053896" to "Indonesian Movies",
         "rank:5283462032510044280" to "Indonesian Drama",
