@@ -8,9 +8,8 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class KlikxxiProviderPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(KlikxxiProvider())
-        registerExtractorAPI(Klixxistrp2p())
-        registerExtractorAPI(Klixxiupns())
-        registerExtractorAPI(Hglink())
         registerExtractorAPI(Hexload())
+        registerExtractorAPI(LuluVido())
+        registerExtractorAPI(Hanerix())
     }
 }

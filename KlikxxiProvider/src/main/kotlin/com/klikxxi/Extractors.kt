@@ -2,8 +2,8 @@ package com.klikxxi
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.extractors.LuluStream
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
-import com.lagradost.cloudstream3.extractors.VidStack
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -79,20 +79,15 @@ class Hexload : ExtractorApi() {
 }
 
 
-class Klixxistrp2p : VidStack() {
-    override var name = "Klixxistrp2p"
-    override var mainUrl = "https://klikxxi.strp2p.site"
-    override var requiresReferer = true
+/** Server 4 halaman KlikXXI: embed https://luluvido.com/e/<code> (keluarga LuluStream). */
+class LuluVido : LuluStream() {
+    override val name = "LuluVido"
+    override val mainUrl = "https://luluvido.com"
 }
 
-class Hglink : StreamWishExtractor() {
-    override val name = "Hglink"
-    override val mainUrl = "https://hglink.to"
-}
-
-class Klixxiupns : VidStack() {
-    override var name = "Klixxiupns"
-    override var mainUrl = "https://klikxxi.upns.one"
-    override var requiresReferer = true
+/** Safety-net: hgcloud.to/e kini 301 ke hanerix.com; core belum punya domain ini. */
+class Hanerix : StreamWishExtractor() {
+    override val name = "Hanerix"
+    override val mainUrl = "https://hanerix.com"
 }
 

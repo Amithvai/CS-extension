@@ -143,11 +143,16 @@ class KlikxxiProvider : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val path = request.data.replace("page/%d/", "")
-        val url = if (page <= 1) {
-            "$mainUrl/$path"
+        // Entri query-string (Latest Movie) memakai "paged=%d", sisanya path "page/%d/"
+        val url = if (request.data.contains("paged=%d")) {
+            "$mainUrl/${request.data}".replace("paged=%d", "paged=$page")
         } else {
-            "$mainUrl/${path.trimEnd('/')}/page/$page/"
+            val path = request.data.replace("page/%d/", "")
+            if (page <= 1) {
+                "$mainUrl/$path"
+            } else {
+                "$mainUrl/${path.trimEnd('/')}/page/$page/"
+            }
         }.replace("//", "/")
          .replace(":/", "://")
 
