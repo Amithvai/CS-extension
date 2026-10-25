@@ -247,10 +247,10 @@
   },
   {
     "iconUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr-sfek8gXmLpcAppEpaYbUDVtndQbCm_boh1-E91QrmSvsw-2l3-s2JOP&s=10",
-    "fileHash": "sha256-88d6abdc6244469257b9c9f46a0e4b46477560b663a7d034a4c87e2e5be79b53",
+    "fileHash": "sha256-b4e2fffa8bea8d11ba253ff715baab017dfa6acf778f3cd2733e74d65993642d",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 37692,
+    "fileSize": 45299,
     "status": 1,
     "language": "id",
     "authors": [
@@ -262,7 +262,7 @@
       "Anime",
       "OVA"
     ],
-    "version": 14,
+    "version": 15,
     "internalName": "OtakudesuProvider",
     "description": "OtakuDesu \u2014 Streaming Anime Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/OtakudesuProvider.cs3",
