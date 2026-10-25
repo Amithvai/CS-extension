@@ -203,10 +203,10 @@
     "name": "NgeFilm21Provider"
   },
   {
-    "fileHash": "sha256-5b8f7bee37f403e05b39bb67e047ba47c9370ed45a9c296737dfcf5fe1d4d9b2",
+    "fileHash": "sha256-4035dba837b3a3aaaec45bfdb6b85f5b88d12c0a730809fe6c54f7fd1a3b9c1f",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 28003,
+    "fileSize": 45819,
     "status": 1,
     "language": "id",
     "authors": [
@@ -217,7 +217,7 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 11,
+    "version": 12,
     "internalName": "Nomat",
     "description": "Nomat - Streaming Movie and TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/Nomat.cs3",
