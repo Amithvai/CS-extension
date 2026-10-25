@@ -33,11 +33,12 @@ class OtakudesuProvider : MainAPI() {
     )
 
     companion object {
-        const val acefile = "https://acefile.co"
+        // Host download/stream yang tidak punya extractor (butuh captcha/akun)
+        // atau tidak didukung CloudStream — dilewati berdasarkan nama link.
         val mirrorBlackList = arrayOf(
-            "Mega",
-            "MegaUp",
-            "Otakufiles",
+            "Mega",       // mega.nz: tidak ada extractor di CloudStream
+            "Otakufiles", // host mati
+            "Viking",     // vikingfile.com: butuh Turnstile captcha
         )
         private val NON_DIGIT_REGEX = Regex("\\D")
         private val YEAR_REGEX = Regex("\\d, (\\d*)")
@@ -47,7 +48,6 @@ class OtakudesuProvider : MainAPI() {
         private val DATA_ACTION_REGEX = Regex("""data:\{action:"([^"]+)"""")
         private val EMBED_ACTION_REGEX = Regex("""nonce[^,]*,\s*action:\s*"([a-f0-9]+)"""")
         private val NONCE_ACTION2_REGEX = Regex("""nonce:[^,]+,action:"([^"]+)"""")
-        private val FILE_ID_REGEX = Regex("""(?:/f/|/file/)(\w+)""")
         private val QUALITY_PIXEL_REGEX = Regex("(\\d{3,4})[pP]")
 
         fun getType(t: String): TvType = when {
@@ -282,6 +282,9 @@ class OtakudesuProvider : MainAPI() {
                         .text.let { tryParseJson<ResponseData>(it) }?.data ?: return@runAllAsync
 
                     document.select("div.mirrorstream > ul > li").amap { li ->
+                        // mega.nz tidak punya extractor di CloudStream — skip sebelum AJAX
+                        if (li.text().contains("mega", true)) return@amap null
+
                         val dataContent = li.select("a").attr("data-content")
                         if (dataContent.isNotBlank()) {
                             val decodedData = runCatching { base64Decode(dataContent) }.getOrNull() ?: return@amap null
@@ -319,11 +322,14 @@ class OtakudesuProvider : MainAPI() {
                     ele.select("a").map {
                         it.attr("href") to it.text()
                     }.filter {
-                        !inBlacklist(it.first) && quality != Qualities.P360.value
+                        // Blacklist dicek berdasarkan NAMA link (Mega/Viking/Otakufiles),
+                        // bukan URL — link ter-proteksi link.desustream.com tidak mengandung nama host.
+                        !inBlacklist(it.second) && quality != Qualities.P360.value
                     }.amap {
+                        // link.desustream.com & desudrive.com me-redirect (302) ke host final
                         val link = runCatching { app.get(it.first, referer = "$mainUrl/", timeout = 15_000L).url }.getOrNull() ?: return@amap null
                         loadCustomExtractor(
-                            fixedIframe(link),
+                            link,
                             data,
                             subtitleCallback,
                             callback,
@@ -363,19 +369,8 @@ class OtakudesuProvider : MainAPI() {
         }
     }
 
-    private fun fixedIframe(url: String): String {
-        return when {
-            url.startsWith(acefile) -> {
-                val id = FILE_ID_REGEX.find(url)?.groupValues?.getOrNull(1)
-                "${acefile}/player/$id"
-            }
-
-            else -> fixUrl(url)
-        }
-    }
-
     private fun inBlacklist(host: String?): Boolean {
-        return mirrorBlackList.any { it.equals(host, true) }
+        return mirrorBlackList.any { host?.contains(it, true) == true }
     }
 
     private fun getQuality(str: String?): Int {
