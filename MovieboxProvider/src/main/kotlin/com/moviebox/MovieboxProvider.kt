@@ -2,6 +2,7 @@ package com.moviebox
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
+import kotlin.math.roundToInt
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -14,8 +15,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class MovieboxProvider : MainAPI() {
     override var mainUrl = "https://movieboxhd.net"
-    private val mainAPIUrl = "https://h5-api.aoneroom.com"
-    private val secondAPIUrl = "https://filmboom.top"
+    private val apiUrl = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
+    private val defaultPlayerUrl = "https://mzfi.me"
     override val instantLinkLoading = true
     override var name = "MovieBox"
     override val hasMainPage = true
@@ -28,74 +29,86 @@ class MovieboxProvider : MainAPI() {
         TvType.AsianDrama
     )
 
+    // Catalog menus paginate deep (filter: ~150k+ items, trending: 200+ pages);
+    // rank: menus are short curated lists kept for the popular categories.
     override val mainPage: List<MainPageData> = mainPageOf(
-        "8821254238245470240" to "Trending Movies",
-        "6528093688173053896" to "Indonesian Movies",
-        "62133389738001440" to "Anime",
-        "7132534597631837112" to "Animation",
-        "5283462032510044280" to "Indonesian Drama",
-        "4380734070238626200" to "K-Drama",
-        "8624142774394406504" to "C-Drama",
-        "4133256925603588432" to "J-Drama",
-        "1164329479448281992" to "Thai-Drama",
-        "4230655749032234008" to "Asian Movies",
-        "8049887023940913872" to "Box Office",
-        "5360200998629917928" to "Forbidden Sex & Love",
-        "8170622407217234072" to "Vivamax Movies",
-        "4543422163096946912" to "Tbonx Collection",
-        "3436880071141867768" to "Porn Top Videos",
-        "4534646032008989032" to "Indian 18+",
-        "7364316894532720656" to "Japanese 18+",
-        "4105487575106966448" to "Korea 18+",
-        "3628141198977782704" to "Chinese 18+",
+        "filter:1" to "Movies",
+        "filter:2" to "TV Series",
+        "filter:4" to "Midnight 18+",
+        "trending:ONEROOM_MOVIE" to "Trending Movies",
+        "trending:ONEROOM_MIDNIGHT" to "Midnight Trending",
+        "trending:ONEROOM_ANIMATION" to "Animation",
+        "filter:5" to "Kids",
+        "rank:8049887023940913872" to "Box Office",
+        "rank:6528093688173053896" to "Indonesian Movies",
+        "rank:5283462032510044280" to "Indonesian Drama",
+        "rank:4230655749032234008" to "Asian Movies",
+        "rank:4380734070238626200" to "K-Drama",
+        "rank:8624142774394406504" to "C-Drama",
+        "rank:4133256925603588432" to "J-Drama",
+        "rank:1164329479448281992" to "Thai-Drama",
+        "rank:62133389738001440" to "Anime",
     )
 
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest,
     ): HomePageResponse {
-        if (request.data.isBlank()) throw ErrorLoadingException("Invalid page data")
-
-        if (!request.data.contains(",")) {
-            val url = "$mainAPIUrl$API_RANKING?id=${request.data}&page=$page&perPage=12"
-            val items = app.get(url, timeout = TIMEOUT).text
-                .let { AppUtils.tryParseJson<Media>(it) }
-                ?.data?.subjectList
-                ?.map { it.toSearchResponse(this) }
-                ?: throw ErrorLoadingException("No Data Found")
-            return newHomePageResponse(request.name, items)
-        }
-
-        val (channelId, sortBy) = request.data.split(",").let { parts ->
-            if (parts.size != 2) throw ErrorLoadingException("Invalid page data format")
-            parts[0] to parts[1]
-        }
-        val body = mapOf(
-            "channelId" to channelId,
-            "page" to page,
-            "perPage" to "28",
-            "sort" to sortBy,
-        ).toJson().toRequestBody(RequestBodyTypes.JSON.toMediaTypeOrNull())
-
-        val items = app.post("$mainAPIUrl$API_FILTER", requestBody = body, timeout = TIMEOUT)
-            .text.let { AppUtils.tryParseJson<Media>(it) }
-            ?.data?.items
-            ?.map { it.toSearchResponse(this) }
+        val (kind, value) = request.data.split(":", limit = 2)
+        val items = when (kind) {
+            "filter" -> {
+                val body = mapOf(
+                    "channelId" to (value.toIntOrNull() ?: 1),
+                    "page" to page,
+                    "perPage" to 28,
+                ).toJson().toRequestBody(RequestBodyTypes.JSON.toMediaTypeOrNull())
+                app.post("$apiUrl/subject/filter", requestBody = body, timeout = TIMEOUT)
+                    .text.let { AppUtils.tryParseJson<Media>(it) }?.data?.items
+            }
+            "trending" -> {
+                app.get("$apiUrl/subject/trending?tabId=$value&page=$page&perPage=18", timeout = TIMEOUT)
+                    .text.let { AppUtils.tryParseJson<Media>(it) }?.data?.subjectList
+            }
+            else -> {
+                app.get("$apiUrl/ranking-list/content?id=$value&page=$page&perPage=12", timeout = TIMEOUT)
+                    .text.let { AppUtils.tryParseJson<Media>(it) }?.data?.subjectList
+            }
+        }?.map { it.toSearchResponse(this) }
             ?: throw ErrorLoadingException("No Data Found")
         return newHomePageResponse(request.name, items)
+    }
+
+    // Search requires a guest JWT that the site obtains from the x-user response
+    // header on any anonymous API call; cache it for the session.
+    @Volatile
+    private var guestToken: String? = null
+
+    private suspend fun ensureGuestToken(): String? {
+        guestToken?.let { return it }
+        return runCatching {
+            val res = app.get("$apiUrl/country-code", timeout = TIMEOUT)
+            val raw = res.headers["x-user"] ?: return@runCatching null
+            AppUtils.tryParseJson<TokenUser>(raw)?.token?.also { guestToken = it }
+        }.getOrNull()
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse> = search(query)
 
     override suspend fun search(query: String): List<SearchResponse> = try {
+        val token = ensureGuestToken()
+        val headers = buildMap<String, String> {
+            put("content-type", "application/json")
+            token?.let { put("Authorization", "Bearer $it") }
+        }
         app.post(
-            "$secondAPIUrl$API_SEARCH",
+            "$apiUrl/subject/search",
             requestBody = mapOf(
                 "keyword" to query,
-                "page" to "1",
-                "perPage" to "20",
-                "subjectType" to "0",
+                "page" to 1,
+                "perPage" to 20,
+                "subjectType" to 0,
             ).toJson().toRequestBody(RequestBodyTypes.JSON.toMediaTypeOrNull()),
+            headers = headers,
             timeout = TIMEOUT,
         ).text.let { AppUtils.tryParseJson<Media>(it) }
             ?.data?.items
@@ -104,31 +117,19 @@ class MovieboxProvider : MainAPI() {
     } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
 
     override suspend fun load(url: String): LoadResponse = coroutineScope {
-        val id = url.split("/").lastOrNull().orEmpty()
-        if (id.isBlank()) return@coroutineScope newMovieLoadResponse("Invalid URL", url, TvType.Movie, "") {}
+        val detailPath = url.removePrefix("$mainUrl/").substringAfterLast('/')
+        if (detailPath.isBlank()) return@coroutineScope newMovieLoadResponse("Invalid URL", url, TvType.Movie, "") {}
 
         val documentDeferred = async {
-            val primary = runCatching {
-                app.get("$secondAPIUrl$API_DETAIL?subjectId=$id", timeout = TIMEOUT)
-                    .text.let { AppUtils.tryParseJson<MediaDetail>(it) }?.data
-            }.getOrNull()
-
-            primary ?: runCatching {
-                app.get("$mainUrl$API_DETAIL?subjectId=$id", timeout = TIMEOUT)
-                    .text.let { AppUtils.tryParseJson<MediaDetail>(it) }?.data
-            }.getOrNull()
-        }
-        val recDeferred = async {
             runCatching {
-                app.get("$mainUrl$API_RECOMMENDATIONS?subjectId=$id&page=1&perPage=12", timeout = TIMEOUT)
-                    .text.let { AppUtils.tryParseJson<Media>(it) }
-                    ?.data?.items
-                    ?.map { it.toSearchResponse(this@MovieboxProvider) }
+                app.get("$apiUrl/detail?detailPath=$detailPath", timeout = TIMEOUT)
+                    .text.let { AppUtils.tryParseJson<MediaDetail>(it) }?.data
             }.getOrNull()
         }
 
         val document = documentDeferred.await() ?: throw ErrorLoadingException("Failed to load details")
         val subject = document.subject ?: throw ErrorLoadingException("Subject not found")
+        val subjectId = subject.subjectId.orEmpty()
         val title = subject.title ?: ""
         val poster = subject.cover?.url
         val tags = subject.genre?.split(",")?.map { it.trim() }
@@ -136,12 +137,21 @@ class MovieboxProvider : MainAPI() {
         val tvType = mapTvType(subject.subjectType)
         val description = subject.description
         val trailer = subject.trailer?.videoAddress?.url
-        val rating = subject.imdbRatingValue?.toIntOrNull()
+        val rating = subject.imdbRatingValue?.toDoubleOrNull()?.roundToInt()
         val actors = document.stars?.mapNotNull { cast ->
             val name = cast.name ?: return@mapNotNull null
             ActorData(Actor(name, cast.avatarUrl), roleString = cast.character)
         }?.distinctBy { it.actor }
-        val recommendations = recDeferred.await()
+        val recommendations = if (subjectId.isNotEmpty()) {
+            runCatching {
+                app.get("$apiUrl/subject/detail-rec?subjectId=$subjectId&page=1&perPage=12", timeout = TIMEOUT)
+                    .text.let { AppUtils.tryParseJson<Media>(it) }
+                    ?.data?.items
+                    ?.map { it.toSearchResponse(this@MovieboxProvider) }
+            }.getOrNull()
+        } else {
+            null
+        }
 
         if (tvType == TvType.TvSeries) {
             val episodes = document.resource?.seasons?.mapNotNull { season ->
@@ -152,7 +162,7 @@ class MovieboxProvider : MainAPI() {
                     season.allEp.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..maxEp }
                 }
                 episodeNumbers.map { ep ->
-                    newEpisode(LoadData(id, season.se, ep, subject.detailPath).toJson()) {
+                    newEpisode(LoadData(subjectId, season.se, ep, detailPath).toJson()) {
                         this.season = season.se
                         this.episode = ep
                     }
@@ -169,7 +179,7 @@ class MovieboxProvider : MainAPI() {
                 addTrailer(trailer, addRaw = true)
             }
         } else {
-            newMovieLoadResponse(title, url, tvType, LoadData(id, detailPath = subject.detailPath).toJson()) {
+            newMovieLoadResponse(title, url, tvType, LoadData(subjectId, detailPath = detailPath).toJson()) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -182,6 +192,23 @@ class MovieboxProvider : MainAPI() {
         }
     }
 
+    // The player domain is served dynamically; the SPA referer must match it exactly
+    // (host + /spa/videoPlayPage/movies/<detailPath>?id=<subjectId>&...) or the play
+    // API silently returns empty streams.
+    @Volatile
+    private var playerBase: String? = null
+
+    private suspend fun ensurePlayerBase(): String {
+        playerBase?.let { return it }
+        val fetched = runCatching {
+            app.get("$apiUrl/media-player/get-domain", timeout = TIMEOUT)
+                .text.let { AppUtils.tryParseJson<DomainResponse>(it) }?.data
+                ?.trimEnd('/')?.takeIf { it.startsWith("http") }
+        }.getOrNull() ?: defaultPlayerUrl
+        playerBase = fetched
+        return fetched
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -190,98 +217,69 @@ class MovieboxProvider : MainAPI() {
     ): Boolean = coroutineScope {
         val media = AppUtils.tryParseJson<LoadData>(data) ?: throw ErrorLoadingException("Gagal memuat data video")
         val mediaId = media.id.orEmpty()
+        val detailPath = media.detailPath.orEmpty()
+        if (mediaId.isEmpty() || detailPath.isEmpty()) {
+            throw ErrorLoadingException("Data video tidak lengkap")
+        }
         val season = media.season ?: 0
         val episode = media.episode ?: 0
+        val base = ensurePlayerBase()
+        val referer = "$base$SPA_VIDEO_PAGE/$detailPath?id=$mediaId&detailSe=&detailEp=&lang=en&type=%2Fmovie%2Fdetail"
 
-        // Referer must point at a SPA video page; keep it on the host that actually served the data.
-        fun refererFor(base: String) = if (media.detailPath != null && mediaId.isNotEmpty()) {
-            "$base$SPA_VIDEO_PAGE/${media.detailPath}?id=$mediaId&type=/movie/detail&lang=en"
-        } else {
-            "$base/"
-        }
-
-        // Primary endpoint (filmboom.top); fall back to h5-api.aoneroom.com when it fails or returns no streams.
-        val primaryPlay = runCatching {
+        val play = runCatching {
             app.get(
-                "$secondAPIUrl$API_PLAY?subjectId=$mediaId&se=$season&ep=$episode",
-                referer = refererFor(secondAPIUrl),
+                "$base/wefeed-h5api-bff/subject/play" +
+                    "?subjectId=$mediaId&se=$season&ep=$episode&detailPath=$detailPath" +
+                    "&streamSignType=1&supportCodecs%5Bhevc%5D=1&supportCodecs%5Bh264%5D=1",
+                referer = referer,
                 timeout = TIMEOUT,
-            ).text.let { AppUtils.tryParseJson<Media>(it) }?.data?.streams
-        }
-        val primaryStreams = primaryPlay.getOrNull().orEmpty()
-        val useFallback = primaryStreams.isEmpty()
+            ).text.let { AppUtils.tryParseJson<Media>(it) }?.data
+        }.getOrNull()
 
-        val fallbackPlay = if (useFallback) {
-            runCatching {
-                app.get(
-                    "$mainAPIUrl$API_PLAY_FALLBACK?subjectId=$mediaId&se=$season&ep=$episode",
-                    referer = refererFor(mainUrl),
-                    timeout = TIMEOUT,
-                ).text.let { AppUtils.tryParseJson<Media>(it) }?.data?.streams
-            }
-        } else {
-            null
-        }
-        val streams = if (useFallback) fallbackPlay?.getOrNull().orEmpty() else primaryStreams
-        val activeBase = if (useFallback) mainUrl else secondAPIUrl
-
-        if (streams.isEmpty()) {
+        val mp4Streams = play?.streams.orEmpty()
+        val dashStreams = play?.dash.orEmpty()
+        if (mp4Streams.isEmpty() && dashStreams.isEmpty()) {
             throw ErrorLoadingException(
-                if (primaryPlay.isFailure && fallbackPlay?.isFailure == true) {
-                    "Gagal terhubung ke server MovieBox. Periksa koneksi internet lalu coba lagi."
-                } else {
-                    "Stream tidak tersedia. Kemungkinan konten ini premium atau endpoint API MovieBox berubah."
-                }
+                "Stream tidak tersedia. Endpoint MovieBox mungkin berubah atau konten ini premium."
             )
         }
 
-        val firstStream = streams.firstOrNull()
-        val streamId = firstStream?.id
-        val format = firstStream?.format
-
-        val streamJob = async {
-            streams.reversed().distinctBy { it.url }.forEach { source ->
-                val url = source.url ?: return@forEach
-                callback.invoke(
-                    newExtractorLink(this@MovieboxProvider.name, this@MovieboxProvider.name, url, INFER_TYPE) {
-                        this.referer = "$activeBase/"
-                        this.quality = getQualityFromName(source.resolutions)
-                    }
-                )
-            }
-        }
         val captionJob = async {
-            if (streamId != null && format != null) {
-                val captions = if (useFallback) {
-                    emptyList()
-                } else {
-                    runCatching {
-                        app.get(
-                            "$secondAPIUrl$API_CAPTION?format=$format&id=$streamId&subjectId=$mediaId",
-                            referer = refererFor(secondAPIUrl),
-                            timeout = TIMEOUT,
-                        ).text.let { AppUtils.tryParseJson<Media>(it) }?.data?.captions
-                    }.getOrNull().orEmpty()
-                }
-
-                val resolvedCaptions = if (captions.isNotEmpty()) captions else {
-                    runCatching {
-                        app.get(
-                            "$mainAPIUrl$API_CAPTION_FALLBACK?format=$format&id=$streamId&subjectId=$mediaId",
-                            referer = refererFor(mainUrl),
-                            timeout = TIMEOUT,
-                        ).text.let { AppUtils.tryParseJson<Media>(it) }?.data?.captions
-                    }.getOrNull().orEmpty()
-                }
-
-                resolvedCaptions.forEach { subtitle ->
-                    val url = subtitle.url ?: return@forEach
-                    subtitleCallback.invoke(newSubtitleFile(subtitle.lanName.orEmpty(), url))
-                }
+            val captionStream = dashStreams.firstOrNull() ?: mp4Streams.firstOrNull()
+            val streamId = captionStream?.id ?: return@async
+            val format = captionStream.format ?: return@async
+            runCatching {
+                app.get(
+                    "$apiUrl/subject/caption?format=$format&id=$streamId&subjectId=$mediaId&detailPath=$detailPath",
+                    referer = "$base/",
+                    timeout = TIMEOUT,
+                ).text.let { AppUtils.tryParseJson<Media>(it) }?.data?.captions
+            }.getOrNull().orEmpty().forEach { subtitle ->
+                val url = subtitle.url ?: return@forEach
+                subtitleCallback.invoke(newSubtitleFile(subtitle.lanName.orEmpty(), url))
             }
         }
 
-        streamJob.await()
+        mp4Streams.forEach { source ->
+            val url = source.url ?: return@forEach
+            callback.invoke(
+                newExtractorLink(this@MovieboxProvider.name, this@MovieboxProvider.name, url, INFER_TYPE) {
+                    this.referer = "$base/"
+                    this.quality = getQualityFromName(source.resolutions)
+                }
+            )
+        }
+        dashStreams.forEach { source ->
+            val url = source.url ?: return@forEach
+            callback.invoke(
+                newExtractorLink("${this@MovieboxProvider.name} DASH", this@MovieboxProvider.name, url, INFER_TYPE) {
+                    this.referer = "$base/"
+                    this.quality = getQualityFromName(source.resolutions)
+                    val cookie = source.signCookie.orEmpty()
+                    if (cookie.isNotEmpty()) this.headers = mapOf("Cookie" to cookie)
+                }
+            )
+        }
         captionJob.await()
         true
     }
@@ -295,15 +293,6 @@ class MovieboxProvider : MainAPI() {
 
     companion object {
         private const val TIMEOUT = 15_000L
-        private const val API_RANKING = "/wefeed-h5api-bff/ranking-list/content"
-        private const val API_FILTER = "/wefeed-h5api-bff/subject/filter"
-        private const val API_SEARCH = "/wefeed-h5-bff/web/subject/search"
-        private const val API_DETAIL = "/wefeed-h5-bff/web/subject/detail"
-        private const val API_RECOMMENDATIONS = "/wefeed-h5-bff/web/subject/detail-rec"
-        private const val API_PLAY = "/wefeed-h5-bff/web/subject/play"
-        private const val API_CAPTION = "/wefeed-h5-bff/web/subject/caption"
-        private const val API_PLAY_FALLBACK = "/wefeed-h5api-bff/subject/play"
-        private const val API_CAPTION_FALLBACK = "/wefeed-h5api-bff/subject/caption"
         private const val SPA_VIDEO_PAGE = "/spa/videoPlayPage/movies"
 
         fun mapTvType(subjectType: Int?): TvType = when (subjectType) {
@@ -316,6 +305,14 @@ class MovieboxProvider : MainAPI() {
 
 // -- API response models --
 
+data class TokenUser(
+    @JsonProperty("token") val token: String? = null,
+)
+
+data class DomainResponse(
+    @JsonProperty("data") val data: String? = null,
+)
+
 data class Media(
     @JsonProperty("data") val data: Data? = null,
 ) {
@@ -323,6 +320,7 @@ data class Media(
         @JsonProperty("subjectList") val subjectList: List<Items>? = null,
         @JsonProperty("items") val items: List<Items>? = null,
         @JsonProperty("streams") val streams: List<Stream>? = null,
+        @JsonProperty("dash") val dash: List<Stream>? = null,
         @JsonProperty("captions") val captions: List<Caption>? = null,
     ) {
         data class Stream(
@@ -330,6 +328,7 @@ data class Media(
             @JsonProperty("format") val format: String? = null,
             @JsonProperty("url") val url: String? = null,
             @JsonProperty("resolutions") val resolutions: String? = null,
+            @JsonProperty("signCookie") val signCookie: String? = null,
         )
 
         data class Caption(
@@ -389,12 +388,14 @@ data class Items(
     }
 }
 
-private fun Items.toSearchResponse(provider: MovieboxProvider): SearchResponse =
-    provider.newMovieSearchResponse(
+private fun Items.toSearchResponse(provider: MovieboxProvider): SearchResponse {
+    val path = detailPath ?: subjectId
+    return provider.newMovieSearchResponse(
         title ?: "",
-        subjectId ?: "",
+        "${provider.mainUrl}/moviedetail/$path",
         MovieboxProvider.mapTvType(subjectType),
         false,
     ) {
         this.posterUrl = cover?.url
     }
+}
