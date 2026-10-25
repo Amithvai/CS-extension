@@ -11,5 +11,7 @@ class Ngefilm21ProviderPlugin: Plugin() {
         // Player Abyss (abyssplayer.com) — dipakai server 2
         registerExtractorAPI(AbyssExtractor())
         registerExtractorAPI(AbyssPlayerExtractor())
+        // playmogo.com — DoodStream baru (server 4)
+        registerExtractorAPI(Playmogo())
     }
 }
