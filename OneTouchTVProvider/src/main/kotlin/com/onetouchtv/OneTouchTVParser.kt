@@ -65,7 +65,8 @@ data class TrackItem(
     val name: String? = null,
     val isDefault: Boolean = false,
     val kind: String? = null,
-    val format: String? = null
+    val format: String? = null,
+    val code: String? = null
 )
 
 data class ParserResponse(
@@ -112,12 +113,17 @@ data class SearchResult(
 
 // Load/detail response models
 data class LoadData(
+    @param:JsonProperty("_id") val id: String? = null,
+    @param:JsonProperty("id") val id2: String? = null,
     val title: String? = null,
+    val type: String? = null,
     val image: String? = null,
     val poster: String? = null,
     val description: String? = null,
     val year: String? = null,
     val status: String? = null,
+    val rating: String? = null,
+    val runtime: Int? = null,
     val actors: List<ActorItem> = emptyList(),
     val genres: List<String> = emptyList(),
     val episodes: List<EpisodeItem> = emptyList()

@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SearchResponseList
 import com.lagradost.cloudstream3.ShowStatus
@@ -39,6 +40,7 @@ class OneTouchTV : MainAPI() {
             "https://api3.devcorp.me",
             "https://api2.devcorp.me",
             "https://api.devcorp.me",
+            "https://onetouchtv.devcorp.me",
         )
 
         private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -70,12 +72,15 @@ class OneTouchTV : MainAPI() {
     override val mainPage = mainPageOf(
         "vod/home" to "Home",
         "vod/movie?page=%d" to "Movie",
-        "vod/filter?country=korean&page=%d" to "Korean",
-        "vod/filter?country=chinese&page=%d" to "Chinese",
+        "vod/filter?type=drama&page=%d" to "Drama",
+        "vod/filter?type=show&page=%d" to "Variety Show",
+        "vod/filter?country=korean&type=drama&page=%d" to "Korean Drama",
+        "vod/filter?country=korean&type=movie&page=%d" to "Korean Movie",
+        "vod/filter?country=chinese&type=drama&page=%d" to "Chinese Drama",
+        "vod/filter?country=chinese&type=movie&page=%d" to "Chinese Movie",
         "vod/filter?country=thai&page=%d" to "Thai",
         "vod/filter?country=japanese&page=%d" to "Japanese",
-        "vod/filter?country=filipino&page=%d" to "Filipino",
-        "vod/filter?country=taiwanese&page=%d" to "Taiwanese"
+        "vod/filter?country=filipino&page=%d" to "Filipino"
     )
 
     /**
@@ -184,7 +189,7 @@ class OneTouchTV : MainAPI() {
         } else {
             val items = tryParseJson<Array<SearchResult>>(decryptedJson)?.toList()
                 ?: throw ErrorLoadingException("Failed to parse ${request.name} data")
-            val tvType = if (request.name == "Movie") TvType.Movie else TvType.TvSeries
+            val tvType = if (request.name.endsWith("Movie")) TvType.Movie else TvType.TvSeries
             newHomePageResponse(
                 list = listOf(HomePageList(
                     name = request.name,
@@ -200,8 +205,11 @@ class OneTouchTV : MainAPI() {
         }
     }
 
+    private fun inferTvType(type: String?): TvType =
+        if (type?.equals("movie", ignoreCase = true) == true) TvType.Movie else TvType.TvSeries
+
     private fun MediaItem.toSearchResponse(mainUrl: String): SearchResponse =
-        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) {
+        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", inferTvType(type)) {
             posterUrl = image?.normalizeImageUrl()
         }
 
@@ -209,15 +217,11 @@ class OneTouchTV : MainAPI() {
      * Normalisasi URL gambar agar bisa dimuat cepat:
      *  - media.themoviedb.org → image.tmdb.org (menghindari 301 redirect)
      *  - i.mydramalist.com → pakai varian kecil (350px) supaya ringan
-     *  - image-7wk.pages.dev → image-v1.pages.dev (CDN lama sudah mati)
      */
     private fun String.normalizeImageUrl(): String {
         var url = this
         if (url.contains("media.themoviedb.org")) {
             url = url.replace("media.themoviedb.org", "image.tmdb.org")
-        }
-        if (url.contains("image-7wk.pages.dev")) {
-            url = url.replace("image-7wk.pages.dev", "image-v1.pages.dev")
         }
         // mydramalist: 4f = ukuran penuh, 4c/_4c = medium. Pakai medium agar ringan.
         if (url.contains("i.mydramalist.com")) {
@@ -252,19 +256,33 @@ class OneTouchTV : MainAPI() {
         }
         val actors = parser.actors.map { ActorData(Actor(it.name ?: "", it.image ?: "")) }
         val tags = parser.genres.map { it.replaceFirstChar(Char::uppercase) }
+        val isMovie = parser.type?.equals("movie", ignoreCase = true) == true
         val episodes = parser.episodes.mapNotNull { ep ->
             val identifier = ep.identifier ?: return@mapNotNull null
             val playId = ep.playId ?: return@mapNotNull null
             newEpisode("$mainUrl/vod/$identifier/episode/$playId") { name = "Episode ${ep.episode ?: "?"}" }
         }
+        // API sering mengembalikan movies dengan daftar episode kosong, tetapi
+        // /vod/{id}/episode/1 tetap menyajikan stream (source "kisskh"). Tanpa
+        // fallback ini, mayoritas film tampil kosong dan tidak bisa diputar.
+        val playableEpisodes = episodes.ifEmpty {
+            val vid = parser.id2 ?: parser.id
+            if (vid == null) emptyList() else listOf(
+                newEpisode("$mainUrl/vod/$vid/episode/1") {
+                    name = if (isMovie) "Movie" else "Episode 1"
+                }
+            )
+        }
         val recommendation = fetchRecommendations()
-        return newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, episodes.reversed()) {
+        return newTvSeriesLoadResponse(title, safeUrl, TvType.TvSeries, playableEpisodes.reversed()) {
             this.backgroundPosterUrl = backgroundPoster
             this.posterUrl = poster
             this.plot = description
             this.tags = tags
             this.showStatus = status
             this.year = year
+            this.score = Score.from10(parser.rating?.toDoubleOrNull())
+            this.duration = parser.runtime
             this.actors = actors
             this.recommendations = recommendation
         }
@@ -286,7 +304,7 @@ class OneTouchTV : MainAPI() {
     }
 
     private fun OneTouchTVParser.TopMedia.toSearchResponse(): SearchResponse =
-        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", TvType.Movie) {
+        newTvSeriesSearchResponse(title ?: "Unknown", "$mainUrl/vod/${id2 ?: id ?: "0"}/detail", inferTvType(type)) {
             posterUrl = image?.normalizeImageUrl()
         }
 
@@ -302,7 +320,9 @@ class OneTouchTV : MainAPI() {
         } catch (e: Exception) {
             throw ErrorLoadingException("Failed to decrypt episode response: ${e.message}")
         }
-        val (sources, tracks) = parseSourcesAndTracks(decryptedJson)
+        val (sources, rawTracks) = parseSourcesAndTracks(decryptedJson)
+        // API mengirim tiap bahasa subtitle dua kali (file berbeda, isi sama).
+        val tracks = rawTracks.distinctBy { "${it.name}|${it.code ?: it.file}" }
         launch {
             tracks.forEach { track ->
                 val file = track.file ?: return@forEach
@@ -313,15 +333,17 @@ class OneTouchTV : MainAPI() {
             sources.forEach { src ->
                 val url = src.url ?: return@forEach
                 val sourceName = src.name?.replaceFirstChar { it.uppercase() } ?: "Source"
+                // Merge header case-insensitive; header dari API (mis. referer
+                // kisskh.co untuk source kisskh) menang atas default.
+                val headers = java.util.TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER).apply {
+                    put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                    put("Referer", "$mainUrl/")
+                    src.headers?.forEach { (k, v) -> put(k, v) }
+                }
                 callback(newExtractorLink(sourceName, sourceName, url, INFER_TYPE) {
                     this.quality = getQualityFromName(src.quality ?: "")
-                    this.referer = "$mainUrl/"
-                    // CDN OneTouchTV (aapanel.devcorp.me) tidak butuh header khusus,
-                    // tapi kirim UA+Referer agar aman bila CDN berubah kebijakan.
-                    this.headers = (src.headers ?: emptyMap()) + mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                        "Referer" to "$mainUrl/"
-                    )
+                    this.referer = headers["Referer"] ?: "$mainUrl/"
+                    this.headers = headers
                 })
             }
         }
