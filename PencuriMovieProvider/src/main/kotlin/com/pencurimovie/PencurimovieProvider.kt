@@ -77,12 +77,14 @@ class PencurimovieProvider : MainAPI() {
         throw ErrorLoadingException("Semua domain PencuriMovie tidak dapat diakses")
     }
 
-    /** Normalisasi URL lama (ww99.pencurimovie.bond dll) ke domain aktif */
+    /** Normalisasi URL lama (ww99.pencurimovie.bond dll) ke domain aktif;
+     * href episode juga bisa datang relatif (/episode/...). */
     private fun normalizeUrl(url: String): String {
-        if (PENCURI_HOST_REGEX.containsMatchIn(url) && !url.startsWith(mainUrl)) {
-            return PENCURI_HOST_REGEX.replaceFirst(url, mainUrl)
+        val absolute = if (url.startsWith("/")) mainUrl + url else url
+        if (PENCURI_HOST_REGEX.containsMatchIn(absolute) && !absolute.startsWith(mainUrl)) {
+            return PENCURI_HOST_REGEX.replaceFirst(absolute, mainUrl)
         }
-        return url
+        return absolute
     }
 
     override val mainPage = mainPageOf(
@@ -102,7 +104,8 @@ class PencurimovieProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val document = fetchDocument("$mainUrl/${request.data}/page/$page")
         val home = document.select("div.ml-item").mapNotNull { it.toSearchResult() }
-        val hasNext = document.selectFirst("a.next, a.page-numbers.next:not(.dots)") != null
+        // Pagination tema sekarang: div#pagination ul.pagination li a.page.larger
+        val hasNext = document.selectFirst("div#pagination a.page, a.next, a.page-numbers.next:not(.dots)") != null
         return newHomePageResponse(
             list = HomePageList(name = request.name, list = home),
             hasNext = hasNext
@@ -113,7 +116,11 @@ class PencurimovieProvider : MainAPI() {
         val title = this.select("a").attr("oldtitle").substringBefore("(")
         val href = fixUrl(this.select("a").attr("href"))
         val posterUrl = this.select("a img").attr("src").takeIf { it.isNotBlank() }?.let { fixUrlNull(it) }
-        val quality = getQualityFromString(this.select("span.mli-quality").text())
+        // Stack resolusi (1080p/720p) lebih informatif daripada label "Web-dl"
+        val quality = getQualityFromString(
+            this.selectFirst("span.mli-resolution")?.text()
+                ?: this.select("span.mli-quality").text()
+        )
         return newMovieSearchResponse(title, href, TvType.Movie) {
             this.posterUrl = posterUrl
             this.quality = quality
@@ -155,7 +162,7 @@ class PencurimovieProvider : MainAPI() {
                 }
                 info.select("div.les-content a").forEach { elem ->
                     val epText = elem.text()
-                    val href = elem.attr("href")
+                    val href = fixUrl(elem.attr("href"))
                     val episode = EPISODE_REGEX.find(epText)?.groupValues?.get(1)?.trim()?.toIntOrNull()
                     val name = epText.substringAfter("-").trim()
                     episodes.add(
