@@ -322,15 +322,36 @@ class KuronimeProvider : MainAPI() {
                         false,
                         "AES/CBC/PKCS5Padding"
                     )
-                    tryParseJson<Mirrors>(decrypt?.toJsonFormat())?.embed?.forEach { (version, entries) ->
-                        entries.forEach { (_, entryUrl) ->
-                            loadFixedExtractor(
-                                entryUrl,
-                                version.removePrefix("v"),
-                                "$currentBaseUrl/",
-                                subtitleCallback,
-                                callback
-                            )
+                    tryParseJson<Mirrors>(decrypt?.toJsonFormat())?.let { mirrors ->
+                        val embedHosts = mutableSetOf<String>()
+                        mirrors.embed.forEach { (version, entries) ->
+                            entries.forEach { (_, entryUrl) ->
+                                if (entryUrl.isNullOrBlank()) return@forEach
+                                embedHosts += hostOf(entryUrl)
+                                loadFixedExtractor(
+                                    entryUrl,
+                                    version.removePrefix("v"),
+                                    "$currentBaseUrl/",
+                                    subtitleCallback,
+                                    callback
+                                )
+                            }
+                        }
+                        // Bagian download menautkan host yang sama dengan embed (file identik)
+                        // plus Gofile yang hanya ada di sini; cukup host baru yang di-load.
+                        mirrors.download.forEach { (version, entries) ->
+                            entries.forEach { (_, entryUrl) ->
+                                if (entryUrl.isNullOrBlank()) return@forEach
+                                if (embedHosts.add(hostOf(entryUrl))) {
+                                    loadFixedExtractor(
+                                        entryUrl,
+                                        version.removePrefix("v"),
+                                        "$currentBaseUrl/",
+                                        subtitleCallback,
+                                        callback
+                                    )
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -381,6 +402,10 @@ class KuronimeProvider : MainAPI() {
         }
     }
 
+    private fun hostOf(url: String): String {
+        return runCatching { URI(url).host?.lowercase() }.getOrNull() ?: url
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     data class MetaImage(
         @JsonProperty("coverType") val coverType: String?,
@@ -416,6 +441,7 @@ class KuronimeProvider : MainAPI() {
 
     data class Mirrors(
         @JsonProperty("embed") val embed: Map<String, Map<String, String>> = emptyMap(),
+        @JsonProperty("download") val download: Map<String, Map<String, String>> = emptyMap(),
     )
 
     data class Sources(
