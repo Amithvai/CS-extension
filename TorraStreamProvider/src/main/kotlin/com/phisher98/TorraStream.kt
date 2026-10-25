@@ -1,6 +1,7 @@
 package com.phisher98
 
 import android.content.SharedPreferences
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
@@ -54,25 +55,17 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
 
     companion object {
         private const val Cinemeta = BuildConfig.CINEMETA_URL
-        const val ThePirateBayApi = "https://thepiratebay-plus.strem.fun"
         const val SubtitlesAPI = "https://opensubtitles-v3.strem.io"
-        // Animetosho memindahkan seluruh API/feed (RSS2, Torznab, JSON, dsb) ke domain
-        // baru feed.animetosho.xyz. feed.animetosho.org sudah NXDOMAIN.
-        // Ref: https://animetosho.net/news/28
-        const val AnimetoshoAPI = "https://feed.animetosho.xyz"
+        // Verifikasi 2026-10: feed.animetosho.xyz sekarang hanya 308-redirect ke
+        // feed.animetosho.net (domain kanonik terkini). Pakai .net langsung.
+        const val AnimetoshoAPI = "https://feed.animetosho.net"
         const val TorrentioAnimeAPI = "https://torrentio.strem.fun/providers=nyaasi,tokyotosho,anidex%7Csort=seeders"
-        /** TorBox Stremio addon - URL utama + mirror fallback (format: /{apikey}/stream/...).
-         * CATATAN (verifikasi 2026): stremio.torbox.app DAN torbox.stremio.app sekarang
-         * NXDOMAIN — TorBox tidak lagi menyediakan Stremio addon resmi, dan addon
-         * pihak ketiga lama sudah hilang. Tidak ada pengganti drop-in dengan format
-         * /{apikey}/stream/... yang sama.
-         * invokeDebianTorbox() memakai firstNotNullOfOrNull sehingga entri mati akan
-         * di-skip otomatis (source TorBox cukup tidak menghasilkan hasil sampai ada
-         * endpoint baru). Ganti entry di bawah bila menemukan addon TorBox yang live. */
-        val TorboxAPI = listOf(
-            "https://stremio.torbox.app",
-            "https://torbox.stremio.app",
-        )
+        // CATATAN (verifikasi 2026-10): ThePirateBay+ addon (thepiratebay-plus.strem.fun)
+        // dan Stremio addon TorBox (stremio.torbox.app / torbox.stremio.app) sudah
+        // NXDOMAIN, sedangkan instance pengganti yang ada (TPB beamup, MediaFusion
+        // publik, Peerflix elfhosted) mati/wajib konfigurasi. Dihapus dari kode.
+        // Torrentio sendiri sudah meng-scrape ThePirateBay, dan TorBox tetap bisa
+        // dipakai sebagai debrid lewat jalur Torrentio/Meteor.
         val TRACKER_LIST_URL = listOf(
             "https://raw.githubusercontent.com/ngosang/trackerslist/refs/heads/master/trackers_best.txt",
             "https://raw.githubusercontent.com/ngosang/trackerslist/refs/heads/master/trackers_best_ip.txt",
@@ -102,7 +95,7 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
             trackersLastFetched = System.currentTimeMillis()
             return fetched
         }
-        private const val Knaben = "https://knaben.org"
+        const val Knaben = "https://knaben.org"
         private const val TorrentsDB = "https://torrentsdb.com"
         const val Meteorfortheweebs ="https://meteorfortheweebs.midnightignite.me"
         private const val tmdbAPI = "https://api.themoviedb.org/3"
@@ -421,23 +414,19 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
         val torrentioapiUrl = buildTorrentioApiUrl(sharedPref, mainUrl)
         val meteorUrl = buildMeteorUrl(sharedPref, Meteorfortheweebs)
         val filtered = filteredCallback(sharedPref, callback)
+        val debrid = provider?.lowercase()
 
-        if (!key.isNullOrEmpty() && provider!="AIO Streams") {
+        if (isDebridService(provider) && !key.isNullOrEmpty()) {
             runAllAsync(
                 { invokeTorrentioDebian(torrentioapiUrl, id, season, episode, callback, filtered) },
-                { invokeMeteorDebian(meteorUrl, id, season, episode, callback, filtered) }
+                { if (debrid != null && debrid in METEOR_SUPPORTED_DEBRID) invokeMeteorDebian(meteorUrl, id, season, episode, callback, filtered) }
             )
         }
 
-        when (provider) {
-            "AIO Streams" if !key.isNullOrEmpty() -> {
+        when {
+            provider == "AIO Streams" && !key.isNullOrEmpty() -> {
                 runAllAsync(
                     { invokeAIOStreamsDebian(key, id, season, episode, callback, filtered) }
-                )
-            }
-            "TorBox" if !key.isNullOrEmpty() -> {
-                runAllAsync(
-                    { invokeDebianTorbox(TorboxAPI, key, id, season, episode, callback, filtered) }
                 )
             }
             else -> {
@@ -453,7 +442,6 @@ class TorraStream(private val sharedPref: SharedPreferences) : TmdbProvider() {
                 } else {
                     runAllAsync(
                         { invokeTorrentio(torrentioapiUrl, id, season, episode, callback, filtered) },
-                        { invokeThepiratebay(ThePirateBayApi, id, season, episode, callback) },
                         { invokeTorrentsDB(TorrentsDB, id, season, episode, callback) },
                         { invokeKnaben(Knaben, isAnime, title, year, season, episode, callback, filtered) },
                         { invokeSubtitleAPI(id, season, episode, subtitleCallback) }
@@ -489,7 +477,8 @@ data class AniZipData(
 )
 data class AniZipMappings(
     val kitsuId: Int? = null,
-    val type: String? = null
+    val type: String? = null,
+    @param:JsonProperty("imdb_id") val imdbId: String? = null
 )
 
 suspend fun generateMagnetLink(

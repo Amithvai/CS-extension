@@ -3,41 +3,6 @@ package com.phisher98
 import com.fasterxml.jackson.annotation.JsonProperty
 
 
-//TorBox
-
-data class TorBoxDebian(
-    val streams: List<TorBoxDebianStream>,
-)
-
-data class TorBoxDebianStream(
-    val name: String,
-    val description: String,
-    val behaviorHints: TorBoxDebianBehaviorHints,
-    val url: String,
-)
-
-data class TorBoxDebianBehaviorHints(
-    val notWebReady: Boolean,
-    val videoSize: Long,
-    val filename: String,
-    val bingeGroup: String,
-    val videoHash: String?,
-)
-
-
-data class TBPResponse(
-    val streams: List<TBPStream>,
-    val cacheMaxAge: Long,
-    val staleRevalidate: Long,
-    val staleError: Long,
-)
-
-data class TBPStream(
-    val name: String,
-    val title: String,
-    val infoHash: String,
-    val tag: String,
-)
 data class SubtitlesAPI(
     val subtitles: List<Subtitle1>,
     val cacheMaxAge: Long,

@@ -14,7 +14,6 @@ import java.util.Calendar
 import java.util.Locale
 
 private val qualityPixelRegex = Regex("(\\d{3,4})[pP]")
-private val qualityCommonRegex = Regex("""\b(2160p|1440p|1080p|720p|480p|360p)\b""", RegexOption.IGNORE_CASE)
 private val sizeRegex = Regex("""(\d+(?:[.,]\d+)?)\s*(GB|MB)""", RegexOption.IGNORE_CASE)
 
 fun getIndexQuality(str: String?): Int {
@@ -110,11 +109,6 @@ data class MetaAnimeData(
     @param:JsonProperty("episodes") val episodes: Map<String, MetaEpisode>? = null,
     @param:JsonProperty("mappings") val mappings: MetaMappings? = null
 )
-
-fun extractResolutionFromDescription(description: String?): String? {
-    if (description.isNullOrBlank()) return null
-    return qualityCommonRegex.find(description)?.value
-}
 
 fun getDate(): TmdbDate {
     val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -276,6 +270,19 @@ fun filteredCallback(
     }
 }
 
+// Verifikasi 2026-10 terhadap endpoint Meteor: layanan berikut diterima
+// (selain itu → "Service unavailable"), sedangkan Torrentio menerima semuanya
+// di bawah ini sebagai parameter debrid.
+val DEBRID_SERVICES = setOf(
+    "realdebrid", "premiumize", "alldebrid", "debridlink",
+    "easydebrid", "offcloud", "torbox", "put.io"
+)
+
+val METEOR_SUPPORTED_DEBRID = DEBRID_SERVICES - "put.io"
+
+fun isDebridService(provider: String?): Boolean =
+    provider?.lowercase() in DEBRID_SERVICES
+
 fun buildTorrentioApiUrl(sharedPref: SharedPreferences, mainUrl: String): String {
     val sort = sharedPref.getString("sort", "qualitysize")
     val languageOption = sharedPref.getString("language", "")
@@ -294,8 +301,10 @@ fun buildTorrentioApiUrl(sharedPref: SharedPreferences, mainUrl: String): String
     val limitStr = limit?.toIntOrNull()
     if (limitStr != null && limitStr in 1..999) params += "limit=$limitStr"
     if (!sizeFilter.isNullOrEmpty()) params += "sizefilter=$sizeFilter"
-    if (!debridProvider.isNullOrEmpty() && !debridKey.isNullOrEmpty() && debridProvider?.lowercase() != "none") {
-        params += "${debridProvider?.lowercase()}=$debridKey"
+    if (isDebridService(debridProvider) && !debridKey.isNullOrEmpty()) {
+        // Torrentio mengenali Put.io sebagai "putio", bukan "put.io"
+        val debridParam = debridProvider?.lowercase()?.replace("put.io", "putio")
+        params += "$debridParam=$debridKey"
     }
 
     val query = params.joinToString("%7C")

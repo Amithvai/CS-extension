@@ -43,8 +43,8 @@ import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.nicehttp.RequestBodyTypes
+import com.phisher98.TorraStream.Companion.Knaben
 import com.phisher98.TorraStream.Companion.Meteorfortheweebs
-import com.phisher98.TorraStream.Companion.TorboxAPI
 import com.phisher98.TorraStream.Companion.TorrentioAnimeAPI
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -276,6 +276,7 @@ open class TorraStreamAnime(private val sharedPref: SharedPreferences) : MainAPI
         var kitsuId = -1
         var type = TvType.TvSeries
         var anidbEid: Int? = null
+        var imdbId: String? = null
 
         try {
             val anijson = app.get("https://api.ani.zip/mappings?anilist_id=$aniid", timeout = 10_000L).text
@@ -283,6 +284,7 @@ open class TorraStreamAnime(private val sharedPref: SharedPreferences) : MainAPI
             val mappings = aniData?.mappings
             if (mappings != null) {
                 kitsuId = mappings.kitsuId ?: -1
+                imdbId = mappings.imdbId
                 val rawtype = mappings.type ?: ""
                 if (rawtype.contains("MOVIE", ignoreCase = true)) {
                     type = TvType.Movie
@@ -299,20 +301,24 @@ open class TorraStreamAnime(private val sharedPref: SharedPreferences) : MainAPI
         val meteorUrl = buildMeteorUrl(sharedPref, Meteorfortheweebs)
 
         val filtered = filteredCallback(sharedPref, callback)
+        val debrid = provider?.lowercase()
+        // Knaben mengindeks rilisan nyaa/1337x yang umumnya memakai judul romaji
+        val knabenTitle = mediaData.jpTitle?.takeIf { it.isNotBlank() } ?: mediaData.title
 
-        if (!provider.isNullOrEmpty() && !key.isNullOrEmpty()) {
-            if (kitsuId != -1) {
-                runAllAsync(
-                    { invokeTorrentioAnimeDebian(debianapiUrl, type, kitsuId, episode, callback, filtered) },
-                    { invokeTorboxAnimeDebian(TorboxAPI, key, type, kitsuId, episode, callback, filtered) },
-                    { invokeMeteorAnimeDebian(meteorUrl, type, kitsuId, episode, callback, filtered) }
-                )
-            }
+        if (isDebridService(provider) && !key.isNullOrEmpty() && kitsuId != -1) {
+            runAllAsync(
+                { invokeTorrentioAnimeDebian(debianapiUrl, type, kitsuId, episode, callback, filtered) },
+                { if (debrid != null && debrid in METEOR_SUPPORTED_DEBRID) invokeMeteorAnimeDebian(meteorUrl, type, kitsuId, episode, callback, filtered) }
+            )
         } else {
+            // AIO Streams memakai manifest URL sebagai key sehingga tidak
+            // kompatibel dengan id kitsu — fallback ke sumber non-debrid
             runAllAsync(
                 { invokeAnimetosho(anidbEid, callback) },
                 { if (kitsuId != -1) invokeTorrentioAnimeType(TorrentioAnimeAPI, type, kitsuId, episode, filtered) },
-                { if (kitsuId != -1) invokeTorrentsDBAnime(TorrentsDB, kitsuId, if (type == TvType.Movie) null else 1, episode, callback, filtered) }
+                { if (kitsuId != -1) invokeTorrentsDBAnime(TorrentsDB, kitsuId, if (type == TvType.Movie) null else 1, episode, callback, filtered) },
+                { invokeKnaben(Knaben, true, knabenTitle, mediaData.year, if (type == TvType.Movie) null else 1, episode, callback, filtered) },
+                { if (imdbId != null) invokeSubtitleAPI(imdbId, if (type == TvType.Movie) null else 1, episode, subtitleCallback) }
             )
         }
 

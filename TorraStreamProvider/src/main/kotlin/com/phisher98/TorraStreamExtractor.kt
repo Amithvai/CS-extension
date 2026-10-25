@@ -12,7 +12,6 @@ import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-import com.lagradost.cloudstream3.mvvm.logError
 import java.util.Locale
 
 private object RegexPatterns {
@@ -104,6 +103,11 @@ suspend fun invokeTorrentioDebian(
     }
     val res = app.get(url, timeout = 15_000L).text.let { tryParseJson<DebianRoot>(it) }
     res?.streams?.forEach { stream ->
+        // Lewati pseudo-stream error Torrentio (mis. "Torrentio\nPutio error"
+        // dengan mp4 failed_access sebagai url) agar tidak muncul sebagai sumber
+        if (stream.url.isBlank() || stream.name.contains("error", true) ||
+            stream.url.contains("/videos/failed", true)
+        ) return@forEach
         val fileUrl = stream.url
 
         val size = RegexPatterns.SIZE
@@ -245,41 +249,6 @@ suspend fun invokeTorrentioAnimeType(
             }
         )
 
-    }
-}
-
-suspend fun invokeThepiratebay(
-    thepiratebayApi: String? = null,
-    imdbId: String? =null,
-    season: Int? = null,
-    episode: Int? = null,
-    callback: (ExtractorLink) -> Unit
-) {
-    try {
-        val url = if(season == null) {
-            "$thepiratebayApi/stream/movie/$imdbId.json"
-        }
-        else {
-            "$thepiratebayApi/stream/series/$imdbId:$season:$episode.json"
-        }
-        val res = app.get(url, timeout = 10_000L).text.let { tryParseJson<TBPResponse>(it) }
-        for(stream in res?.streams ?: emptyList())
-        {
-            val magnetLink = generateMagnetLink(stream.infoHash, stream.title).trim()
-            callback.invoke(
-                newExtractorLink(
-                    "ThePirateBay",
-                    "ThePirateBay [${stream.title}]",
-                    url = magnetLink,
-                    INFER_TYPE
-                ) {
-                    this.referer = ""
-                    this.quality = getIndexQuality(stream.title)
-                }
-            )
-        }
-    } catch (e: Exception) {
-        logError(e)
     }
 }
 
@@ -429,97 +398,6 @@ suspend fun invokeAIOStreamsDebian(
     }
 }
 
-suspend fun invokeDebianTorbox(
-    torBoxAPI: List<String>,
-    key: String,
-    id: String? = null,
-    season: Int? = null,
-    episode: Int? = null,
-    callback: (ExtractorLink) -> Unit,
-    filtered: (ExtractorLink) -> Unit
-) {
-    val path = if (season == null) {
-        "$key/stream/movie/$id.json"
-    } else {
-        "$key/stream/series/$id:$season:$episode.json"
-    }
-
-    // Coba tiap mirror TorBox berurutan sampai ada yang merespons JSON valid
-    val response = torBoxAPI.firstNotNullOfOrNull { base ->
-        runCatching {
-            app.get("$base/$path", timeout = 10_000).text.let { tryParseJson<TorBoxDebian>(it) }
-        }.getOrNull()
-    } ?: return
-
-    response.streams.forEach { stream ->
-
-        val resolution = extractResolutionFromDescription(stream.description)
-
-        val sourceName = stream.name
-            .substringBeforeLast("(")
-            .trim()
-            .ifBlank { "TorBox" }
-
-        val cache = RegexPatterns.CACHE_PAREN
-            .find(stream.name)
-            ?.groupValues?.getOrNull(1)
-            ?.let {
-                when {
-                    stream.name.contains("Your Media", true) -> "Your Media"
-                    it.equals("Instant", true) -> "Instant"
-                    else -> "TorBox Download"
-                }
-            } ?: if (stream.name.contains("Your Media", true)) "Your Media" else "TorBox Download"
-
-        val displayName = buildString {
-            append("TorBox+ | [$cache] | ")
-            val rawName = stream.behaviorHints.filename
-            val baseName = rawName
-            .substringBeforeLast('.')
-            .replace('.', ' ')
-            .trim()
-
-            if (baseName.isNotBlank())
-                append(baseName)
-
-            val fileSize = RegexPatterns.FILE_SIZE
-                .find(stream.description)
-                ?.groupValues?.get(1)
-                ?.trim()
-            if (!fileSize.isNullOrBlank())
-                append(" | 📦 $fileSize")
-
-            val seeders = RegexPatterns.SEEDERS
-                .find(stream.description)
-                ?.groupValues?.get(1)
-                ?.trim()
-            if (!seeders.isNullOrBlank())
-                append(" | 🌱 $seeders")
-
-        }.trim()
-
-
-        filtered.invoke(
-            newExtractorLink(
-                formatSourceName(sourceName, cache),
-                displayName,
-                url = stream.url,
-                INFER_TYPE
-            ).apply {
-                referer = ""
-                this.quality = getQualityFromName(resolution)
-            }
-        )
-    }
-
-}
-
-fun formatSourceName(sourceName: String, cache: String): String {
-    return if (cache.equals("Your Media", true) &&
-        sourceName.contains("Your Media", true)
-    ) sourceName else "$sourceName [$cache]"
-}
-
 suspend fun invokeKnaben(
     knaben: String,
     isAnime: Boolean,
@@ -627,70 +505,6 @@ suspend fun invokeKnaben(
 }
 
 
-
-suspend fun invokeTorboxAnimeDebian(
-    mainUrls: List<String>,
-    key: String,
-    type: TvType,
-    id: Int? = null,
-    episode: Int? = null,
-    callback: (ExtractorLink) -> Unit,
-    filtered: (ExtractorLink) -> Unit
-) {
-    val path = if (type == TvType.Movie) {
-        "$key/stream/movie/kitsu:$id.json"
-    } else {
-        "$key/stream/series/kitsu:$id:$episode.json"
-    }
-    // Coba tiap mirror TorBox berurutan sampai ada yang merespons JSON valid
-    val res = mainUrls.firstNotNullOfOrNull { base ->
-        runCatching {
-            app.get("$base/$path", timeout = 10_000).text.let { tryParseJson<DebianRoot>(it) }
-        }.getOrNull()
-    }
-    res?.streams?.forEach { stream ->
-        val fileUrl = stream.url
-
-        val size = RegexPatterns.SIZE
-            .find(stream.title)
-            ?.let { m -> "${m.groupValues[1].replace(',', '.')} ${m.groupValues[2].uppercase()}" }
-
-        val seedersNum = RegexPatterns.SEEDERS_NUM.find(stream.title)?.groupValues?.get(1)
-
-        val name = stream.behaviorHints.filename ?: stream.title.substringBefore("\n")
-
-        val formattedName = name
-            .substringBeforeLast('.')
-            .replace('.', ' ')
-            .trim()
-
-        val cache = RegexPatterns.CACHE_PAREN.find(stream.name)
-            ?.groupValues?.get(1)
-            ?.takeIf { it == "Instant" }
-            ?: "TorBox Download"
-
-        val parts = listOfNotNull(
-            size?.let { "📦 $it" },
-            seedersNum?.let { "🌱 $it" }
-        )
-
-        val suffix = if (parts.isNotEmpty()) " | ${parts.joinToString(" | ")}" else ""
-
-        val finalTitle = "TorBox+ Anime | [$cache] | $formattedName$suffix"
-
-        filtered.invoke(
-            newExtractorLink(
-                "TorBox+ [$cache]",
-                finalTitle,
-                url = fileUrl,
-                INFER_TYPE
-            ) {
-                this.referer = ""
-                this.quality = getIndexQuality(stream.name)
-            }
-        )
-    }
-}
 
 suspend fun invokeTorrentsDB(
     mainUrl: String,
@@ -805,6 +619,11 @@ suspend fun invokeMeteorDebian(
     val res = app.get(url, timeout = 15_000L).text.let { tryParseJson<MeteorRoot>(it) }
 
     res?.streams?.forEach { stream ->
+        // Lewati pseudo-stream error Meteor ("Meteor - Service unavailable" /
+        // "Meteor - Invalid API key") — biasanya tidak punya field url
+        if (stream.url.isBlank() || stream.name.contains("unavailable", true) ||
+            stream.name.contains("invalid", true)
+        ) return@forEach
 
         val fileUrl = stream.url
 
@@ -869,6 +688,10 @@ suspend fun invokeMeteorAnimeDebian(
     val res = app.get(url, timeout = 15_000L).text.let { tryParseJson<MeteorRoot>(it) }
 
     res?.streams?.forEach { stream ->
+        // Lewati pseudo-stream error Meteor (lihat invokeMeteorDebian)
+        if (stream.url.isBlank() || stream.name.contains("unavailable", true) ||
+            stream.name.contains("invalid", true)
+        ) return@forEach
 
         val fileUrl = stream.url
 
