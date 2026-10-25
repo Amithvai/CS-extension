@@ -158,10 +158,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://movieboxhd.net&size=%size%",
-    "fileHash": "sha256-c267c0c49f189ae4005274b588b77ff9d86911c01dd9ee6110529ed67334dd90",
+    "fileHash": "sha256-28f1fa57a6b5cc36705b2810470726174c79cf70ddd0c08f1e4fde3336a930ef",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 44678,
+    "fileSize": 44565,
     "status": 1,
     "language": "id",
     "authors": [
