@@ -67,19 +67,15 @@ class Nomat : MainAPI() {
             )
 
     override val mainPage = mainPageOf(
-        "slug/film-terbaru/%d/" to "Terbaru",
-        "slug/semua-film/%d/" to "Semua Film",
-        "slug/film-box-office/%d/" to "Box Office",
-        "slug/film-terfavorit/%d/" to "Terfavorit",
-        "slug/film-serial-baru-terpopuler/%d/" to "TV Series",
+        "slug/film-baru-terpopuler/%d/" to "Latest",
+        "slug/film-box-office-terkini/%d/" to "Box Office",
         "category/genre/action/%d/" to "Action",
-        "slug/film-movie-anime/%d/" to "Animation",
-        "category/genre/history/%d/" to "History",
-        "category/genre/horror/%d/" to "Horror",
-        "category/genre/romance/%d/" to "Romance",
-        "category/country/japan/%d/" to "Japan",
-        "category/country/philippines/%d/" to "Philippines",
-        "category/country/thailand/%d/" to "Thailand"
+        "slug/film-serial-tv-jepang/%d/" to "Japan",
+        "slug/film-serial-tv-mandarin/%d/" to "China",
+        "slug/film-serial-tv-korea/%d/" to "Korean",
+        "slug/film-serial-anime/%d/" to "Anime",
+        "slug/film-movie-anime/%d/" to "Movie Anime",
+        "slug/film-movie-kartun/%d/" to "Animation",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
