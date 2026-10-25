@@ -269,27 +269,6 @@
     "name": "OtakudesuProvider"
   },
   {
-    "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://ww44.pencurimovie.baby&size=%size%",
-    "fileHash": "sha256-bd3b56246d6cda76b0ba040b75c8a1c4165867e1e67784369263cc0cf4cbb0a2",
-    "apiVersion": 1,
-    "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 28416,
-    "status": 1,
-    "language": "id",
-    "authors": [
-      "MWK"
-    ],
-    "tvTypes": [
-      "Movie",
-      "TvSeries"
-    ],
-    "version": 9,
-    "internalName": "PencuriMovieProvider",
-    "description": "PencuriMovie \u2014 Streaming Movie and TV Series",
-    "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/PencuriMovieProvider.cs3",
-    "name": "PencuriMovieProvider"
-  },
-  {
     "iconUrl": "https://torrentio.strem.fun/images/logo_v1.png",
     "fileHash": "sha256-1cad603cb7f812f544c73bf955e8515fd4e75aeb82675688aa5257eab0ba8e59",
     "apiVersion": 1,
@@ -313,28 +292,5 @@
     "description": "#1 Best Extension \u2013 MultiAPI-Based with 4K Torrent Support (Debian) Use Extension Settings",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/TorraStreamProvider.cs3",
     "name": "TorraStreamProvider"
-  },
-  {
-    "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://winbu.org&size=%size%",
-    "fileHash": "sha256-b31150808d6f064072adfc47afaaea4f30f11b55f28d36b56ca76cbd10e116bf",
-    "apiVersion": 1,
-    "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 42332,
-    "status": 1,
-    "language": "id",
-    "authors": [
-      "MWK"
-    ],
-    "tvTypes": [
-      "Anime",
-      "AsianDrama",
-      "TvSeries",
-      "Movie"
-    ],
-    "version": 7,
-    "internalName": "WinbuProvider",
-    "description": "Winbu \u2014 Streaming Anime, Donghua, Film dan TV Series",
-    "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/WinbuProvider.cs3",
-    "name": "WinbuProvider"
   }
 ]
