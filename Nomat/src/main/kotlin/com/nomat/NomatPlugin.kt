@@ -8,12 +8,13 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class NomatPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Nomat())
-        registerExtractorAPI(Hydrax())
-        registerExtractorAPI(Dingtezuni())
-        registerExtractorAPI(Movearnpre())
-        registerExtractorAPI(Mivalyo())
-        registerExtractorAPI(Bingezove())
-        registerExtractorAPI(Ryderjet())
+        // Extractor aktif (auditor 2026-10-25): filelions hidup via VidHidePro,
+        // filemoon.sx butuh FileMoonByse khusus (captcha POW + AES-GCM),
+        // streamwish/streamhide muncul sporadis di server list.
+        // Registrasi mati (Dingtezuni/Earnvids/Ryderjet/Hydrax) dibuang.
+        registerExtractorAPI(FileMoonByse())
         registerExtractorAPI(FilelionsTo())
+        registerExtractorAPI(StreamWishTo())
+        registerExtractorAPI(StreamHideTo())
     }
 }

@@ -20,16 +20,19 @@ class Nomat : MainAPI() {
         private val EPISODE_LABEL_REGEX = Regex("Episode\\s*(\\d+)", RegexOption.IGNORE_CASE)
         private val DIGITS_ONLY_REGEX = Regex("^\\s*(\\d+)\\s*$")
         private val SEASON_PATH_REGEX = Regex("/season-(\\d+)/")
+        /** Slug gaya baru: nonton-a-shop-for-killers--season-2-2026-... */
+        private val SEASON_SLUG_REGEX = Regex("-season-(\\d+)-", RegexOption.IGNORE_CASE)
 
         /** Domain mirror Nomat, urutan prioritas.
-         * nomat.asia (lama) sekarang 301 → nomat.shop. */
+         * Sejak 2026-10: nomat.asia & nomat.shop keduanya 301 → nomat.world. */
         private val domains = listOf(
+            "https://nomat.world",
             "https://nomat.shop",
             "https://nomat.asia",
         )
 
         /** Domain lama/baru untuk normalisasi URL tersimpan */
-        private val KNOWN_HOSTS = listOf("nomat.asia", "nomat.shop")
+        private val KNOWN_HOSTS = listOf("nomat.asia", "nomat.shop", "nomat.world")
 
         private val deadDomains = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private const val DEAD_TTL_MS = 10 * 60 * 1000L
@@ -65,7 +68,9 @@ class Nomat : MainAPI() {
 
     override val mainPage = mainPageOf(
         "slug/film-terbaru/%d/" to "Terbaru",
+        "slug/semua-film/%d/" to "Semua Film",
         "slug/film-box-office/%d/" to "Box Office",
+        "slug/film-terfavorit/%d/" to "Terfavorit",
         "slug/film-serial-baru-terpopuler/%d/" to "TV Series",
         "category/genre/action/%d/" to "Action",
         "slug/film-movie-anime/%d/" to "Animation",
@@ -88,9 +93,13 @@ class Nomat : MainAPI() {
         }
     }
 
-    /** Fetch dokumen dengan fallback multi-domain + negative cache */
+    /** Fetch dokumen dengan fallback multi-domain + negative cache.
+     * URL non-Nomat (mis. halaman player nontonhemat) tidak ikut fallback mirror. */
     private suspend fun fetchDocument(url: String, referer: String? = null): Document {
         val host = hostOf(url)
+        if (host != null && host !in KNOWN_HOSTS) {
+            return app.get(url, referer = referer, timeout = 15_000L).document
+        }
         if (!isDead(host)) {
             runCatching { app.get(url, referer = referer, timeout = 15_000L).document }.getOrNull()?.let { return it }
             markDead(host)
@@ -136,8 +145,12 @@ class Nomat : MainAPI() {
         val posterStyle = this.selectFirst(".poster")?.attr("style").orEmpty()
         val poster = POSTER_URL_REGEX.find(posterStyle)?.groupValues?.get(1)
         val ratingText = this.selectFirst(".rtg")?.ownText()?.trim()
-        val quality = this.selectFirst(".quality")?.text()?.trim()
-        val epsText = this.selectFirst(".episode")?.text()?.trim()
+
+        // Badge kanan-atas: .qual biasa = kualitas (HD), .qual.eps = jumlah/label episode ("Eps. 10")
+        val qualEl = this.selectFirst(".qual")
+        val isEpsBadge = qualEl?.hasClass("eps") == true
+        val quality = if (isEpsBadge) null else qualEl?.text()?.trim()
+        val epsText = if (isEpsBadge) qualEl?.text()?.trim() else null
         val episode = EPISODE_TEXT_REGEX
             .find(epsText ?: "")
             ?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -166,6 +179,8 @@ class Nomat : MainAPI() {
                 ?.substringBefore("Season")
                 ?.substringBefore("Episode")
                 ?.trim()
+                ?.trimEnd('-', ' ')
+                ?.trim()
                 ?: ""
 
             val poster = fixUrlNull(
@@ -187,10 +202,13 @@ class Nomat : MainAPI() {
             if (isSeries) {
                 val episodes = document.select("div.video-episodes a").map { eps ->
                     val href = fixUrl(eps.attr("href"))
-                    val number = EPISODE_PATH_REGEX.find(href)?.groupValues?.get(1)?.toIntOrNull()
+                    // Format baru 2026: /play/<slug>-<id>/<char> + label "Eps. N" (bukan lagi /episode-N).
+                    val number = EPISODE_TEXT_REGEX.find(eps.text())?.groupValues?.get(1)?.toIntOrNull()
+                        ?: EPISODE_PATH_REGEX.find(href)?.groupValues?.get(1)?.toIntOrNull()
                         ?: EPISODE_LABEL_REGEX.find(eps.text())?.groupValues?.get(1)?.toIntOrNull()
                         ?: DIGITS_ONLY_REGEX.find(eps.text())?.groupValues?.get(1)?.toIntOrNull()
                     val season = SEASON_PATH_REGEX.find(href)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: SEASON_SLUG_REGEX.find(href)?.groupValues?.get(1)?.toIntOrNull()
                     val name = number?.let { "Episode $it" } ?: eps.text().trim()
 
                     newEpisode(href) {
@@ -212,7 +230,7 @@ class Nomat : MainAPI() {
                     addScore(rating ?: "")
                 }
             } else {
-                val playUrl = document.selectFirst("a:has(.play-btn), a[href*='nontonhemat.link'], [data-play], a[href*='player'], a[href*='watch'], a[href*='stream']")?.attr("href")
+                val playUrl = document.selectFirst("a:has(.play-btn), a[href*='nontonhemat'], [data-play], a[href*='player'], a[href*='watch'], a[href*='stream']")?.attr("href")
 
                 newMovieLoadResponse(title, safeUrl, TvType.Movie, playUrl ?: safeUrl) {
                     this.posterUrl = poster
@@ -250,7 +268,7 @@ class Nomat : MainAPI() {
 
             // Kasus 2: follow tombol play ke nontonhemat.link
             val playHref = detailDoc
-                .selectFirst("a:has(.play-btn), a[href*='nontonhemat.link']")
+                .selectFirst("a:has(.play-btn), a[href*='nontonhemat']")
                 ?.attr("href")
                 ?.let { fixUrl(it) }
 
