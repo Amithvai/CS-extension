@@ -225,10 +225,10 @@
   },
   {
     "iconUrl": "https://www.google.com/s2/favicons?domain=onetouchtv.xyz/&sz=%size%",
-    "fileHash": "sha256-9fd4aac3eb42fa1a31507ff3ce29ac8b996705a15accab3dc0df52db30f84b93",
+    "fileHash": "sha256-4eafc015a5777a57d4a851eb7e4bf731af9a163451830fc2771bb0e67088c82b",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 46440,
+    "fileSize": 48217,
     "status": 1,
     "language": "id",
     "authors": [
@@ -240,7 +240,7 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 15,
+    "version": 16,
     "internalName": "OneTouchTVProvider",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/OneTouchTVProvider.cs3",
     "name": "OneTouchTVProvider"
