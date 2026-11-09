@@ -1,7 +1,7 @@
 [
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://anichin.moe&size=%size%",
-    "fileHash": "sha256-5c44a83a0766a35699c776d4945d5a2927a3fffb1ada43a022f459e2b8843361",
+    "fileHash": "sha256-cf56329147a6294effda2874a34bde55fdd43b6615449c02c4f163ab440fef8e",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 65655,
@@ -15,7 +15,7 @@
       "AnimeMovie",
       "Cartoon"
     ],
-    "version": 16,
+    "version": 17,
     "internalName": "AnichinProvider",
     "description": "Anichin - Streaming Donghua Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/AnichinProvider.cs3",
@@ -23,10 +23,10 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://animeku.site&size=%size%",
-    "fileHash": "sha256-eb8402d540b8e37b49f93e8dcd71e1ce19ecef3c3238bb6c59eaef76f38b4d39",
+    "fileHash": "sha256-87b4e2186a8c9d77ddc24aaf7049adb465b0c02b2affb4c602dcce9b0a6d5ae3",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 21046,
+    "fileSize": 21045,
     "status": 1,
     "language": "id",
     "authors": [
@@ -37,7 +37,7 @@
       "AnimeMovie",
       "OVA"
     ],
-    "version": 6,
+    "version": 7,
     "internalName": "AnimekuProvider",
     "description": "Animeku \u2014 Streaming Anime Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/AnimekuProvider.cs3",
@@ -45,7 +45,7 @@
   },
   {
     "iconUrl": "https://animexin.dev/wp-content/uploads/2026/01/cropped-New-Logo-e1768365053967-192x192.png",
-    "fileHash": "sha256-9a3e52e704b685b7b9b464c61f1e268f095184da20c74824a9e4f97950c9122f",
+    "fileHash": "sha256-801a6336865e7d0af063b4e9d8d1d98f22aa84f2e5c463f39a5c4a7bf06d4076",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 48290,
@@ -59,14 +59,14 @@
       "AnimeMovie",
       "Cartoon"
     ],
-    "version": 1,
+    "version": 2,
     "internalName": "AnimexinProvider",
     "description": "Animexin - Streaming Donghua Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/AnimexinProvider.cs3",
     "name": "AnimexinProvider"
   },
   {
-    "fileHash": "sha256-ad4bfd663daee6428c735fcec7399bfef0de1064d269a5e7c3ee9f5baf990ad7",
+    "fileHash": "sha256-2c909b08e25b60533f38d798eafd7446b32a3c3e3115b2b6d7cae2ce7ec2c586",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 52555,
@@ -82,7 +82,7 @@
       "Anime",
       "AsianDrama"
     ],
-    "version": 18,
+    "version": 19,
     "internalName": "Dutamovie",
     "description": "DutaMovie - Streaming Movie and TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/Dutamovie.cs3",
@@ -90,10 +90,10 @@
   },
   {
     "iconUrl": "https://www.google.com/s2/favicons?domain=kisskh.co&sz=%size%",
-    "fileHash": "sha256-cf965747baa9539aee72ef03ccb5c5e6ebc8dfdf045bfd9595730aaea6c69997",
+    "fileHash": "sha256-9fa2e72992725e28ed112454f34549417d9dc8c4e9648a74526a5ded73c8833a",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 37727,
+    "fileSize": 37728,
     "status": 1,
     "language": "en",
     "authors": [
@@ -106,14 +106,14 @@
       "Anime",
       "Movie"
     ],
-    "version": 13,
+    "version": 14,
     "internalName": "KisskhProvider",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/KisskhProvider.cs3",
     "name": "KisskhProvider"
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://klikxxi.shop&size=%size%",
-    "fileHash": "sha256-e97d78dc710ef41d0ba03ef13fe0ba634904f7e72b95151e252b9f48ea86c633",
+    "fileHash": "sha256-5fadc73a02a94a2758060a53cb2611781a6c1c7c5e9838510ab99a5a41293708",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 33430,
@@ -127,7 +127,7 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 10,
+    "version": 11,
     "internalName": "KlikxxiProvider",
     "description": "KlikXXI \u2014 Streaming Movie and TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/KlikxxiProvider.cs3",
@@ -135,7 +135,7 @@
   },
   {
     "iconUrl": "https://play-lh.googleusercontent.com/EFMkS1T-8txjLFIl9QxjcTRLa7a7Muv08C04b7ongYgodoY_b2T3GpxzGAQEx-eitfQ=w256",
-    "fileHash": "sha256-798f94c4d89468873350c75fee1c2607cf77dacb54c375f7b06af64ff59fa72c",
+    "fileHash": "sha256-fac8fb1b0c151f871854ba850306154838892c2984607a43390c25be4c78b661",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 45302,
@@ -150,7 +150,7 @@
       "Anime",
       "OVA"
     ],
-    "version": 16,
+    "version": 17,
     "internalName": "KuronimeProvider",
     "description": "Kuronime \u2014 Streaming Anime Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/KuronimeProvider.cs3",
@@ -158,7 +158,7 @@
   },
   {
     "iconUrl": "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://movieboxhd.net&size=%size%",
-    "fileHash": "sha256-28f1fa57a6b5cc36705b2810470726174c79cf70ddd0c08f1e4fde3336a930ef",
+    "fileHash": "sha256-22de1ec69080984ee445d51fdb0c1d32fecf293c08225fef563078c38089bae7",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 44565,
@@ -174,7 +174,7 @@
       "Anime",
       "AsianDrama"
     ],
-    "version": 12,
+    "version": 13,
     "internalName": "MovieboxProvider",
     "description": "MovieBox \u2014 Streaming Movie Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/MovieboxProvider.cs3",
@@ -182,7 +182,7 @@
   },
   {
     "iconUrl": "https://new39.ngefilm.site/wp-content/uploads/2023/08/cropped-imageedit_8_4481000408-60x60.png",
-    "fileHash": "sha256-e5c450692e8ced48e5f5e84c4ef5123495d094b99bf34b9662a82bfd27b4f71d",
+    "fileHash": "sha256-7696b0c2276b6ca6ee11e039e31dd6d9aa8087a29b6b9e3b5e3ab7e84cd774ae",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 43003,
@@ -196,17 +196,17 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 11,
+    "version": 12,
     "internalName": "NgeFilm21Provider",
     "description": "NgeFilm21 \u2014 Streaming Movie and TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/NgeFilm21Provider.cs3",
     "name": "NgeFilm21Provider"
   },
   {
-    "fileHash": "sha256-4035dba837b3a3aaaec45bfdb6b85f5b88d12c0a730809fe6c54f7fd1a3b9c1f",
+    "fileHash": "sha256-e771576e445f54101805cec2956e7eaf11bea670bb175603d20ddca5710f6f7b",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 45819,
+    "fileSize": 45800,
     "status": 1,
     "language": "id",
     "authors": [
@@ -217,7 +217,7 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 12,
+    "version": 13,
     "internalName": "Nomat",
     "description": "Nomat - Streaming Movie and TV Series",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/Nomat.cs3",
@@ -225,10 +225,10 @@
   },
   {
     "iconUrl": "https://www.google.com/s2/favicons?domain=onetouchtv.xyz/&sz=%size%",
-    "fileHash": "sha256-4eafc015a5777a57d4a851eb7e4bf731af9a163451830fc2771bb0e67088c82b",
+    "fileHash": "sha256-1431f5034f398201a59575cfe100f5b48d99ff6dcc0ddcc9f2aa4ce6aff3e29d",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 48217,
+    "fileSize": 48216,
     "status": 1,
     "language": "id",
     "authors": [
@@ -240,14 +240,14 @@
       "TvSeries",
       "Movie"
     ],
-    "version": 16,
+    "version": 17,
     "internalName": "OneTouchTVProvider",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/OneTouchTVProvider.cs3",
     "name": "OneTouchTVProvider"
   },
   {
     "iconUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr-sfek8gXmLpcAppEpaYbUDVtndQbCm_boh1-E91QrmSvsw-2l3-s2JOP&s=10",
-    "fileHash": "sha256-b4e2fffa8bea8d11ba253ff715baab017dfa6acf778f3cd2733e74d65993642d",
+    "fileHash": "sha256-3becde8c67a3ebf572f047d701c8478b1357d8f99c3ccebf8a74f0fa425b9aae",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
     "fileSize": 45299,
@@ -262,7 +262,7 @@
       "Anime",
       "OVA"
     ],
-    "version": 15,
+    "version": 16,
     "internalName": "OtakudesuProvider",
     "description": "OtakuDesu \u2014 Streaming Anime Subtitle Indonesia",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/OtakudesuProvider.cs3",
@@ -270,10 +270,10 @@
   },
   {
     "iconUrl": "https://torrentio.strem.fun/images/logo_v1.png",
-    "fileHash": "sha256-cec5bb68f2edd133b71676a61a2c00c6bc61397c4ec26624fa94be96775484df",
+    "fileHash": "sha256-08951d031aec2fcf393ad6c9a35c399ee940527b74c56e62c1535c318bc85ea8",
     "apiVersion": 1,
     "repositoryUrl": "https://github.com/Amithvai/CS-extension",
-    "fileSize": 200073,
+    "fileSize": 200092,
     "status": 1,
     "language": "en",
     "authors": [
@@ -287,7 +287,7 @@
       "TvSeries",
       "Anime"
     ],
-    "version": 96,
+    "version": 97,
     "internalName": "TorraStreamProvider",
     "description": "#1 Best Extension \u2013 MultiAPI-Based with 4K Torrent Support (Debian) Use Extension Settings",
     "url": "https://raw.githubusercontent.com/Amithvai/CS-extension/builds/TorraStreamProvider.cs3",
