@@ -302,7 +302,7 @@ class FileMoonByse : ExtractorApi() {
         if (v < 1 || v > parts.size) return
         val first = runCatching { b64UrlDecode(parts[v - 1]) }.getOrNull() ?: return
         val second = runCatching { b64UrlDecode(parts[parts.size - 1 - v]) }.getOrNull() ?: return
-        val iv = runCatching { b64UrlDecode(playback.iv!!) }.getOrNull() ?: return
+        val iv = runCatching { b64UrlDecode(playback.iv) }.getOrNull() ?: return
         if (iv.size != 12) return
 
         val key = first + second
@@ -319,7 +319,7 @@ class FileMoonByse : ExtractorApi() {
                 SecretKeySpec(key, "AES"),
                 GCMParameterSpec(128, iv)
             )
-            cipher.doFinal(b64UrlDecode(playback.payload!!))
+            cipher.doFinal(b64UrlDecode(playback.payload))
         }.getOrNull()
         if (plain == null) {
             logError(Exception("$name: dekripsi GCM gagal untuk $code"))

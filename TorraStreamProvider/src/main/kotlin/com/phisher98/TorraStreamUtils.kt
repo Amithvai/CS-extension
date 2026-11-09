@@ -293,11 +293,11 @@ fun buildTorrentioApiUrl(sharedPref: SharedPreferences, mainUrl: String): String
     val debridKey = sharedPref.getString("debrid_key", "")
 
     val params = mutableListOf<String>()
-    if (!sort.isNullOrEmpty()) params += "sort=${sort?.lowercase()}"
+    if (!sort.isNullOrEmpty()) params += "sort=${sort.lowercase()}"
     val provider = sharedPref.getString("provider", "")
-    if (!provider.isNullOrEmpty()) params += "providers=${provider?.lowercase()}"
-    if (!languageOption.isNullOrEmpty()) params += "language=${languageOption?.lowercase()}"
-    if (!qualityFilter.isNullOrEmpty()) params += "qualityfilter=${qualityFilter?.lowercase()}"
+    if (!provider.isNullOrEmpty()) params += "providers=${provider.lowercase()}"
+    if (!languageOption.isNullOrEmpty()) params += "language=${languageOption.lowercase()}"
+    if (!qualityFilter.isNullOrEmpty()) params += "qualityfilter=${qualityFilter.lowercase()}"
     val limitStr = limit?.toIntOrNull()
     if (limitStr != null && limitStr in 1..999) params += "limit=$limitStr"
     if (!sizeFilter.isNullOrEmpty()) params += "sizefilter=$sizeFilter"

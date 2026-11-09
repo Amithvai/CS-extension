@@ -146,7 +146,7 @@ class Nomat : MainAPI() {
         val qualEl = this.selectFirst(".qual")
         val isEpsBadge = qualEl?.hasClass("eps") == true
         val quality = if (isEpsBadge) null else qualEl?.text()?.trim()
-        val epsText = if (isEpsBadge) qualEl?.text()?.trim() else null
+        val epsText = if (isEpsBadge) qualEl.text().trim() else null
         val episode = EPISODE_TEXT_REGEX
             .find(epsText ?: "")
             ?.groupValues?.getOrNull(1)?.toIntOrNull()
